@@ -11,10 +11,82 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION // Do not include this line twice in your project!
 #include "stb_image_write.h"
 
+// Frame Size
+const int width = 500;
+const int height = 500;
+
+// Orthographic and Perspective Projection
+const double near = 0.1;
+const double far = 100;
+
+std::vector<VertexAttributes> vertices;
+
+Eigen::Matrix4d get_camera_transformation(Eigen::Vector3d camera_position)
+{
+    // Calculate the look-at and view direction
+    Eigen::Vector3d gaze_direction = camera_position;
+    Eigen::Vector3d view_up = Eigen::Vector3d(0.0, 1.0, 0.0);
+
+    // Calculate the camera reference system
+    Eigen::Vector3d w = -gaze_direction.normalized();
+    Eigen::Vector3d u = view_up.cross(w).normalized();
+    Eigen::Vector3d v = w.cross(u);
+
+    Eigen::Matrix4d camera_transform;
+    camera_transform << u(0), v(0), w(0), camera_position(0),
+        u(1), v(1), w(1), camera_position(1),
+        u(2), v(2), w(2), camera_position(2),
+        0, 0, 0, 1;
+
+    return camera_transform.inverse();
+}
+
+Eigen::Matrix4d get_perspective_projection()
+{
+    Eigen::Matrix4d perspective_projection;
+
+    perspective_projection << near, 0, 0, 0,
+        0, near, 0, 0,
+        0, 0, near + far, -(far * near),
+        0, 0, 1, 0;
+
+    return perspective_projection;
+}
+
+Eigen::Matrix4d get_orthographic_projection(double top, double right)
+{
+    // Specifying the bounding box coordinates for canonical cube
+    double left = -right;
+    double bottom = -top;
+
+    Eigen::Matrix4d ortho_projection;
+    ortho_projection << 2 / (right - left), 0, 0, -(right + left) / (right - left),
+        0, 2 / (top - bottom), 0, -(top + bottom) / (top - bottom),
+        0, 0, 2 / (near - far), -(near + far) / (near - far),
+        0, 0, 0, 1;
+
+    return ortho_projection;
+}
+
+Eigen::Matrix4d get_view_transformation(double aspect_ratio)
+{
+    Eigen::Matrix4d view = Eigen::Matrix4d::Identity();
+
+    if (aspect_ratio < 1)
+        view(0, 0) = aspect_ratio;
+    else
+        view(1, 1) = 1 / aspect_ratio;
+
+    return view;
+}
+
+Eigen::Vector4d get_canonical_coordinates(int x_screen, int y_screen)
+{
+    return Eigen::Vector4d((double(x_screen) / double(width) * 2) - 1, (double(height - 1 - y_screen) / double(height) * 2) - 1, 0, 1);
+}
+
 int main(int argc, char *args[])
 {
-    int width = 500;
-    int height = 500;
     // The Framebuffer storing the image rendered by the rasterizer
     Eigen::Matrix<FrameBufferAttributes, Eigen::Dynamic, Eigen::Dynamic> frameBuffer(width, height);
 
@@ -27,7 +99,10 @@ int main(int argc, char *args[])
     // The vertex shader is the identity
     program.VertexShader = [](const VertexAttributes &va, const UniformAttributes &uniform)
     {
-        return va;
+        VertexAttributes out;
+        out.position = uniform.transformation * va.position;
+        out.color = va.color;
+        return out;
     };
 
     // The fragment shader uses a fixed color
@@ -42,11 +117,27 @@ int main(int argc, char *args[])
         return FrameBufferAttributes(fa.color[0] * 255, fa.color[1] * 255, fa.color[2] * 255, fa.color[3] * 255);
     };
 
-    // One triangle in the center of the screen
-    std::vector<VertexAttributes> vertices;
-    vertices.push_back(VertexAttributes(-1, -1, 0));
-    vertices.push_back(VertexAttributes(1, -1, 0));
-    vertices.push_back(VertexAttributes(0, 1, 0));
+    // Add a transformation to compensate for the aspect ratio of the framebuffer
+    double aspect_ratio = double(frameBuffer.cols()) / double(frameBuffer.rows());
+    double top = 16;
+    double right = top;
+
+    // Orthographic Projection
+    // Set the transformations for camera space and orthographic projection
+    uniform.camera_position = Eigen::Vector3d(0, 0, -5);
+
+    Eigen::Matrix4d camera_transformation = get_camera_transformation(uniform.camera_position);
+    Eigen::Matrix4d perspective_projection = Eigen::Matrix4d::Identity();
+    Eigen::Matrix4d ortho_projection = get_orthographic_projection(top, right);
+    Eigen::Matrix4d view = get_view_transformation(aspect_ratio);
+
+    uniform.transformation = view * ortho_projection * perspective_projection * camera_transformation;
+    uniform.inverse_transformation = camera_transformation.inverse() * perspective_projection.inverse() * ortho_projection.inverse() * view.inverse();
+
+    // World Coordinates
+    vertices.push_back(VertexAttributes(-16, -16, 45.05));
+    vertices.push_back(VertexAttributes(16, -16, 45.05));
+    vertices.push_back(VertexAttributes(0, 16, 45.05));
     vertices[0].color << 1, 0, 0, 1;
     vertices[1].color << 0, 1, 0, 1;
     vertices[2].color << 0, 0, 1, 1;
@@ -60,7 +151,9 @@ int main(int argc, char *args[])
 
     viewer.mouse_pressed = [&](int x, int y, bool is_pressed, int button, int clicks)
     {
-        vertices[2].position << (double(x) / double(width) * 2) - 1, (double(height - 1 - y) / double(height) * 2) - 1, 0, 1;
+        Eigen::Vector4d canonical_coords = get_canonical_coordinates(x, y);
+        Eigen::Vector4d world_coords = uniform.inverse_transformation * canonical_coords;
+        vertices[2].position = world_coords;
         viewer.redraw_next = true;
     };
 

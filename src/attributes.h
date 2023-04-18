@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Eigen/Core>
+#include <Eigen/Geometry>
 
 class VertexAttributes
 {
@@ -21,7 +22,7 @@ public:
 		const double gamma)
 	{
 		VertexAttributes r;
-		r.position = alpha * a.position + beta * b.position + gamma * c.position;
+		r.position = alpha * (a.position / a.position[3]) + beta * (b.position / b.position[3]) + gamma * (c.position / c.position[3]);
 		r.color = alpha * a.color + beta * b.color + gamma * c.color;
 		return r;
 	}
@@ -55,4 +56,7 @@ public:
 class UniformAttributes
 {
 public:
+	Eigen::Matrix4d transformation;
+	Eigen::Matrix4d inverse_transformation;
+	Eigen::Vector3d camera_position;
 };
