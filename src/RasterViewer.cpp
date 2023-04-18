@@ -21,6 +21,10 @@ const double far = 100;
 
 std::vector<VertexAttributes> vertices;
 
+bool insert_mode = false;
+bool translate_mode = false;
+bool delete_mode = false;
+
 Eigen::Matrix4d get_camera_transformation(Eigen::Vector3d camera_position)
 {
     // Calculate the look-at and view direction
@@ -153,14 +157,35 @@ int main(int argc, char *args[])
     {
         Eigen::Vector4d canonical_coords = get_canonical_coordinates(x, y);
         Eigen::Vector4d world_coords = uniform.inverse_transformation * canonical_coords;
-        vertices[2].position = world_coords;
-        viewer.redraw_next = true;
+        if (insert_mode)
+        {
+            vertices[2].position = world_coords;
+            viewer.redraw_next = true;
+        }
     };
 
     viewer.mouse_wheel = [&](int dx, int dy, bool is_direction_normal) {
     };
 
-    viewer.key_pressed = [&](char key, bool is_pressed, int modifier, int repeat) {
+    viewer.key_pressed = [&](char key, bool is_pressed, int modifier, int repeat)
+    {
+        switch (key)
+        {
+        case 'i':
+            insert_mode = true;
+            break;
+        case 'o':
+            translate_mode = true;
+            break;
+        case 'p':
+            delete_mode = true;
+            break;
+        case 'z':
+            insert_mode = false;
+            translate_mode = false;
+            delete_mode = false;
+            break;
+        }
     };
 
     viewer.redraw = [&](SDLViewer &viewer)
