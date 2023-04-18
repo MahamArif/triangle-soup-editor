@@ -112,13 +112,22 @@ int main(int argc, char *args[])
     // The fragment shader uses a fixed color
     program.FragmentShader = [](const VertexAttributes &va, const UniformAttributes &uniform)
     {
-        return FragmentAttributes(va.color(0), va.color(1), va.color(2));
+        FragmentAttributes out(va.color(0), va.color(1), va.color(2), va.color(3));
+        out.position = va.position;
+        return out;
     };
 
     // The blending shader converts colors between 0 and 1 to uint8
     program.BlendingShader = [](const FragmentAttributes &fa, const FrameBufferAttributes &previous)
     {
-        return FrameBufferAttributes(fa.color[0] * 255, fa.color[1] * 255, fa.color[2] * 255, fa.color[3] * 255);
+        if (fa.position[2] <= previous.depth)
+        {
+            FrameBufferAttributes out(fa.color[0] * 255, fa.color[1] * 255, fa.color[2] * 255, fa.color[3] * 255);
+            out.depth = fa.position[2];
+            return out;
+        }
+        else
+            return previous;
     };
 
     // Add a transformation to compensate for the aspect ratio of the framebuffer

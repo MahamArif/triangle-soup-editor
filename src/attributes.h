@@ -40,6 +40,7 @@ public:
 	}
 
 	Eigen::Vector4d color;
+	Eigen::Vector4d position;
 };
 
 class FrameBufferAttributes
@@ -48,9 +49,11 @@ public:
 	FrameBufferAttributes(uint8_t r = 0, uint8_t g = 0, uint8_t b = 0, uint8_t a = 255)
 	{
 		color << r, g, b, a;
+		depth = 2; // this value should be between -1 and 1, 2 is further than the visible range
 	}
 
 	Eigen::Matrix<uint8_t, 4, 1> color;
+	double depth;
 };
 
 class UniformAttributes
