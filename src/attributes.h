@@ -46,7 +46,7 @@ public:
 class FrameBufferAttributes
 {
 public:
-	FrameBufferAttributes(uint8_t r = 0, uint8_t g = 0, uint8_t b = 0, uint8_t a = 255)
+	FrameBufferAttributes(uint8_t r = 255, uint8_t g = 255, uint8_t b = 255, uint8_t a = 255)
 	{
 		color << r, g, b, a;
 		depth = 2; // this value should be between -1 and 1, 2 is further than the visible range

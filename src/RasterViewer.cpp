@@ -12,14 +12,18 @@
 #include "stb_image_write.h"
 
 // Frame Size
-const int width = 500;
-const int height = 500;
+const int width = 1000;
+const int height = 1000;
+
+// The Framebuffer storing the image rendered by the rasterizer
+Eigen::Matrix<FrameBufferAttributes, Eigen::Dynamic, Eigen::Dynamic> frameBuffer(width, height);
 
 // Orthographic and Perspective Projection
 const double near = 0.1;
 const double far = 100;
 
-std::vector<VertexAttributes> vertices;
+std::vector<VertexAttributes> triangle_vertices;
+std::vector<VertexAttributes> line_vertices;
 
 bool insert_mode = false;
 bool translate_mode = false;
@@ -89,11 +93,51 @@ Eigen::Vector4d get_canonical_coordinates(int x_screen, int y_screen)
     return Eigen::Vector4d((double(x_screen) / double(width) * 2) - 1, (double(height - 1 - y_screen) / double(height) * 2) - 1, 0, 1);
 }
 
+VertexAttributes get_vertex(Eigen::Vector4d &coordinates)
+{
+    VertexAttributes vertex(coordinates(0), coordinates(1), coordinates(2));
+    vertex.color << 0, 0, 0, 1;
+    return vertex;
+}
+
+void render_triangles_with_wireframe(
+    const Program &program,
+    const UniformAttributes &uniform,
+    std::vector<VertexAttributes> triangle_vertices)
+{
+    std::vector<VertexAttributes> line_vertices;
+    for (int i = 0; i < triangle_vertices.size() / 3; i++)
+    {
+        VertexAttributes a = triangle_vertices.at(i * 3 + 0);
+        VertexAttributes b = triangle_vertices.at(i * 3 + 1);
+        VertexAttributes c = triangle_vertices.at(i * 3 + 2);
+
+        // To avoid lines being hidden by faces
+        a.position[2] += 0.0005;
+        b.position[2] += 0.0005;
+        c.position[2] += 0.0005;
+
+        line_vertices.push_back(a);
+        line_vertices.push_back(b);
+
+        line_vertices.push_back(b);
+        line_vertices.push_back(c);
+
+        line_vertices.push_back(c);
+        line_vertices.push_back(a);
+    }
+
+    for (int i = 0; i < line_vertices.size(); i++)
+    {
+        line_vertices[i].color = Eigen::Vector4d(0, 0, 0, 1);
+    }
+
+    rasterize_triangles(program, uniform, triangle_vertices, frameBuffer);
+    rasterize_lines(program, uniform, line_vertices, 1, frameBuffer);
+}
+
 int main(int argc, char *args[])
 {
-    // The Framebuffer storing the image rendered by the rasterizer
-    Eigen::Matrix<FrameBufferAttributes, Eigen::Dynamic, Eigen::Dynamic> frameBuffer(width, height);
-
     // Global Constants (empty in this example)
     UniformAttributes uniform;
 
@@ -147,28 +191,65 @@ int main(int argc, char *args[])
     uniform.transformation = view * ortho_projection * perspective_projection * camera_transformation;
     uniform.inverse_transformation = camera_transformation.inverse() * perspective_projection.inverse() * ortho_projection.inverse() * view.inverse();
 
-    // World Coordinates
-    vertices.push_back(VertexAttributes(-16, -16, 45.05));
-    vertices.push_back(VertexAttributes(16, -16, 45.05));
-    vertices.push_back(VertexAttributes(0, 16, 45.05));
-    vertices[0].color << 1, 0, 0, 1;
-    vertices[1].color << 0, 1, 0, 1;
-    vertices[2].color << 0, 0, 1, 1;
-
     // Initialize the viewer and the corresponding callbacks
     SDLViewer viewer;
     viewer.init("Viewer Example", width, height);
 
-    viewer.mouse_move = [](int x, int y, int xrel, int yrel) {
+    viewer.mouse_move = [&](int x, int y, int xrel, int yrel)
+    {
+        int num_line_vertices = line_vertices.size();
+        if (insert_mode && num_line_vertices > 0)
+        {
+            Eigen::Vector4d canonical_coords = get_canonical_coordinates(x, y);
+            Eigen::Vector4d world_coords = uniform.inverse_transformation * canonical_coords;
+
+            if (num_line_vertices <= 2)
+            {
+                line_vertices.back().position = world_coords;
+            }
+            else
+            {
+                line_vertices[num_line_vertices - 2].position = world_coords;
+                line_vertices[num_line_vertices - 3].position = world_coords;
+            }
+            viewer.redraw_next = true;
+        }
     };
 
     viewer.mouse_pressed = [&](int x, int y, bool is_pressed, int button, int clicks)
     {
-        Eigen::Vector4d canonical_coords = get_canonical_coordinates(x, y);
-        Eigen::Vector4d world_coords = uniform.inverse_transformation * canonical_coords;
-        if (insert_mode)
+        if (insert_mode && is_pressed)
         {
-            vertices[2].position = world_coords;
+            Eigen::Vector4d canonical_coords = get_canonical_coordinates(x, y);
+            Eigen::Vector4d world_coords = uniform.inverse_transformation * canonical_coords;
+
+            int num_line_vertices = line_vertices.size();
+            if (num_line_vertices == 0)
+            {
+                line_vertices.push_back(get_vertex(world_coords));
+                line_vertices.push_back(get_vertex(world_coords));
+            }
+            else if (num_line_vertices == 2)
+            {
+                line_vertices.back().position = world_coords;
+                line_vertices.push_back(get_vertex(world_coords));
+                line_vertices.push_back(get_vertex(world_coords));
+                line_vertices.push_back(get_vertex(world_coords));
+                line_vertices.push_back(line_vertices.at(0));
+            }
+            else
+            {
+                triangle_vertices.push_back(line_vertices.at(0));
+                triangle_vertices.push_back(line_vertices.at(1));
+                triangle_vertices.push_back(get_vertex(world_coords));
+
+                int num_triangle_vertices = triangle_vertices.size();
+                triangle_vertices[num_triangle_vertices - 1].color << 1, 0, 0, 1;
+                triangle_vertices[num_triangle_vertices - 2].color << 1, 0, 0, 1;
+                triangle_vertices[num_triangle_vertices - 3].color << 1, 0, 0, 1;
+                line_vertices.clear();
+            }
+
             viewer.redraw_next = true;
         }
     };
@@ -191,8 +272,10 @@ int main(int argc, char *args[])
             break;
         case 'z':
             insert_mode = false;
+            line_vertices.clear();
             translate_mode = false;
             delete_mode = false;
+            viewer.redraw_next = true;
             break;
         }
     };
@@ -200,11 +283,11 @@ int main(int argc, char *args[])
     viewer.redraw = [&](SDLViewer &viewer)
     {
         // Clear the framebuffer
-        for (unsigned i = 0; i < frameBuffer.rows(); i++)
-            for (unsigned j = 0; j < frameBuffer.cols(); j++)
-                frameBuffer(i, j).color << 0, 0, 0, 1;
+        frameBuffer.setConstant(FrameBufferAttributes());
 
-        rasterize_triangles(program, uniform, vertices, frameBuffer);
+        render_triangles_with_wireframe(program, uniform, triangle_vertices);
+
+        rasterize_lines(program, uniform, line_vertices, 1, frameBuffer);
 
         // Buffer for exchanging data between rasterizer and sdl viewer
         Eigen::Matrix<uint8_t, Eigen::Dynamic, Eigen::Dynamic> R(width, height);
