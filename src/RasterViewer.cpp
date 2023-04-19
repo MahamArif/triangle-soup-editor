@@ -136,6 +136,57 @@ void render_triangles_with_wireframe(
     rasterize_lines(program, uniform, line_vertices, 1, frameBuffer);
 }
 
+double ray_triangle_intersection(const Eigen::Vector3d &ray_origin, const Eigen::Vector3d &ray_direction, const Eigen::Vector3d &a, const Eigen::Vector3d &b, const Eigen::Vector3d &c)
+{
+    // Compute whether the ray intersects the given triangle.
+    Eigen::Matrix3d M;
+    M.col(0) << (a - b);
+    M.col(1) << (a - c);
+    M.col(2) << ray_direction;
+    Eigen::Vector3d z = a - ray_origin;
+
+    Eigen::Vector3d x = M.colPivHouseholderQr().solve(z);
+
+    // A solution exists if t > 0, 0 <= u,v & u + v <= 1
+    bool is_ray_intersect = x(0) >= 0 && x(1) >= 0 && (x(0) + x(1)) <= 1 && x(2) > 0;
+
+    if (is_ray_intersect)
+    {
+        return x(2);
+    }
+
+    return -1;
+}
+
+// Finds the closest intersecting object returns its index
+int find_nearest_object(const Eigen::Vector3d &ray_origin, const Eigen::Vector3d &ray_direction)
+{
+    int closest_index = -1;
+    double closest_t = std::numeric_limits<double>::max(); // closest t is "+ infinity"
+
+    for (int i = 0; i < triangle_vertices.size() / 3; i++)
+    {
+        VertexAttributes a = triangle_vertices.at(i * 3 + 0);
+        VertexAttributes b = triangle_vertices.at(i * 3 + 1);
+        VertexAttributes c = triangle_vertices.at(i * 3 + 2);
+        const double t = ray_triangle_intersection(
+            ray_origin,
+            ray_direction,
+            a.position.head<3>(),
+            b.position.head<3>(),
+            c.position.head<3>());
+
+        // We have intersection and the point is before our current closest t
+        if (t >= 0 && t < closest_t)
+        {
+            closest_index = i;
+            closest_t = t;
+        }
+    }
+
+    return closest_index;
+}
+
 int main(int argc, char *args[])
 {
     // Global Constants (empty in this example)
@@ -218,11 +269,11 @@ int main(int argc, char *args[])
 
     viewer.mouse_pressed = [&](int x, int y, bool is_pressed, int button, int clicks)
     {
+        Eigen::Vector4d canonical_coords = get_canonical_coordinates(x, y);
+        Eigen::Vector4d world_coords = uniform.inverse_transformation * canonical_coords;
+
         if (insert_mode && is_pressed)
         {
-            Eigen::Vector4d canonical_coords = get_canonical_coordinates(x, y);
-            Eigen::Vector4d world_coords = uniform.inverse_transformation * canonical_coords;
-
             int num_line_vertices = line_vertices.size();
             if (num_line_vertices == 0)
             {
@@ -249,9 +300,22 @@ int main(int argc, char *args[])
                 triangle_vertices[num_triangle_vertices - 3].color << 1, 0, 0, 1;
                 line_vertices.clear();
             }
-
-            viewer.redraw_next = true;
         }
+
+        if (delete_mode && is_pressed)
+        {
+            Eigen::Vector3d ray_origin = uniform.camera_position;
+            Eigen::Vector3d ray_direction = (world_coords.head<3>() - ray_origin).normalized();
+
+            const int nearest_index = find_nearest_object(ray_origin, ray_direction);
+            if (nearest_index > -1)
+            {
+                int index_to_remove = nearest_index * 3;
+                triangle_vertices.erase(triangle_vertices.begin() + index_to_remove, triangle_vertices.begin() + index_to_remove + 3);
+            }
+        }
+
+        viewer.redraw_next = true;
     };
 
     viewer.mouse_wheel = [&](int dx, int dy, bool is_direction_normal) {
@@ -263,12 +327,16 @@ int main(int argc, char *args[])
         {
         case 'i':
             insert_mode = true;
+            delete_mode = false;
             break;
         case 'o':
             translate_mode = true;
             break;
         case 'p':
             delete_mode = true;
+            insert_mode = false;
+            line_vertices.clear();
+            viewer.redraw_next = true;
             break;
         case 'z':
             insert_mode = false;
