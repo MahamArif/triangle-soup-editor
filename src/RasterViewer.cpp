@@ -27,10 +27,25 @@ std::vector<VertexAttributes> triangle_vertices;
 std::vector<VertexAttributes> line_vertices;
 
 // Modes
-bool insert_mode = false;
-bool translate_mode = false;
-bool delete_mode = false;
+enum mode
+{
+    NONE = 0,
+    INSERT_MODE = 1,
+    TRANSLATE_MODE = 2,
+    DELETE_MODE = 3
+};
 
+mode current_mode;
+
+// Colors
+enum color
+{
+    RED = 1,
+    BLUE = 2,
+    BLACK = 3
+};
+
+// For highlighting triangle
 int selected_index = -1;
 bool is_mouse_pressed = false;
 
@@ -103,55 +118,6 @@ Eigen::Matrix4d get_view_transformation(double aspect_ratio)
     return view;
 }
 
-Eigen::Vector4d get_canonical_coordinates(int x_screen, int y_screen)
-{
-    return Eigen::Vector4d((double(x_screen) / double(width) * 2) - 1, (double(height - 1 - y_screen) / double(height) * 2) - 1, 0, 1);
-}
-
-VertexAttributes get_vertex(Eigen::Vector4d &coordinates, int object_id = -1)
-{
-    VertexAttributes vertex(coordinates(0), coordinates(1), coordinates(2));
-    vertex.color << 0, 0, 0, 1;
-    vertex.object_id = object_id;
-    return vertex;
-}
-
-void render_triangles_with_wireframe(
-    const Program &program,
-    const UniformAttributes &uniform,
-    std::vector<VertexAttributes> triangle_vertices)
-{
-    std::vector<VertexAttributes> line_vertices;
-    for (int i = 0; i < triangle_vertices.size() / 3; i++)
-    {
-        VertexAttributes a = triangle_vertices.at(i * 3 + 0);
-        VertexAttributes b = triangle_vertices.at(i * 3 + 1);
-        VertexAttributes c = triangle_vertices.at(i * 3 + 2);
-
-        // To avoid lines being hidden by faces
-        a.position[2] += 0.0005;
-        b.position[2] += 0.0005;
-        c.position[2] += 0.0005;
-
-        line_vertices.push_back(a);
-        line_vertices.push_back(b);
-
-        line_vertices.push_back(b);
-        line_vertices.push_back(c);
-
-        line_vertices.push_back(c);
-        line_vertices.push_back(a);
-    }
-
-    for (int i = 0; i < line_vertices.size(); i++)
-    {
-        line_vertices[i].color = Eigen::Vector4d(0, 0, 0, 1);
-    }
-
-    rasterize_triangles(program, uniform, triangle_vertices, frameBuffer);
-    rasterize_lines(program, uniform, line_vertices, 1, frameBuffer);
-}
-
 double ray_triangle_intersection(const Eigen::Vector3d &ray_origin, const Eigen::Vector3d &ray_direction, const Eigen::Vector3d &a, const Eigen::Vector3d &b, const Eigen::Vector3d &c)
 {
     // Compute whether the ray intersects the given triangle.
@@ -182,9 +148,9 @@ int find_nearest_object(const Eigen::Vector3d &ray_origin, const Eigen::Vector3d
 
     for (int i = 0; i < triangle_vertices.size() / 3; i++)
     {
-        VertexAttributes a = triangle_vertices.at(i * 3 + 0);
-        VertexAttributes b = triangle_vertices.at(i * 3 + 1);
-        VertexAttributes c = triangle_vertices.at(i * 3 + 2);
+        VertexAttributes a = triangle_vertices[i * 3 + 0];
+        VertexAttributes b = triangle_vertices[i * 3 + 1];
+        VertexAttributes c = triangle_vertices[i * 3 + 2];
 
         Eigen::Vector4d vertex_a = model_transformations[i] * a.position;
         Eigen::Vector4d vertex_b = model_transformations[i] * b.position;
@@ -206,6 +172,214 @@ int find_nearest_object(const Eigen::Vector3d &ray_origin, const Eigen::Vector3d
     }
 
     return closest_index;
+}
+
+Eigen::Vector4d get_color_vector(color color_code)
+{
+    switch (color_code)
+    {
+    case RED:
+        return Eigen::Vector4d(1, 0, 0, 1);
+    case BLUE:
+        return Eigen::Vector4d(0, 0, 1, 1);
+    case BLACK:
+        return Eigen::Vector4d(0, 0, 0, 1);
+    default:
+        return Eigen::Vector4d(0, 0, 0, 1);
+    }
+}
+
+Eigen::Vector4d get_world_coordinates(int x_screen, int y_screen, const Eigen::Matrix4d &inverse_transform)
+{
+    Eigen::Vector4d canonical_coords = Eigen::Vector4d((double(x_screen) / double(width) * 2) - 1, (double(height - 1 - y_screen) / double(height) * 2) - 1, 0, 1);
+    Eigen::Vector4d world_coords = inverse_transform * canonical_coords;
+    return world_coords;
+}
+
+VertexAttributes get_vertex_attributes(Eigen::Vector4d &coordinates, color color_code = BLACK, int object_id = -1)
+{
+    VertexAttributes vertex(coordinates(0), coordinates(1), coordinates(2));
+    vertex.color = get_color_vector(color_code);
+    vertex.object_id = object_id;
+    return vertex;
+}
+
+void highlight_triangle(int selected_index)
+{
+    if (selected_index > -1)
+    {
+        Eigen::Vector4d color = get_color_vector(BLUE);
+        triangle_vertices[selected_index * 3 + 0].color = color;
+        triangle_vertices[selected_index * 3 + 1].color = color;
+        triangle_vertices[selected_index * 3 + 2].color = color;
+    }
+}
+
+void remove_selection()
+{
+    if (selected_index > -1)
+    {
+        Eigen::Vector4d color = get_color_vector(RED);
+        triangle_vertices[selected_index * 3 + 0].color = color;
+        triangle_vertices[selected_index * 3 + 1].color = color;
+        triangle_vertices[selected_index * 3 + 2].color = color;
+    }
+    selected_index = -1;
+}
+
+void insert_triangle(Eigen::Vector4d a, Eigen::Vector4d b, Eigen::Vector4d c, UniformAttributes &uniform)
+{
+    int triangle_index = triangle_vertices.size() / 3;
+    triangle_vertices.push_back(get_vertex_attributes(a, RED, triangle_index));
+    triangle_vertices.push_back(get_vertex_attributes(b, RED, triangle_index));
+    triangle_vertices.push_back(get_vertex_attributes(c, RED, triangle_index));
+
+    uniform.model_transformations.push_back(Eigen::Matrix4d::Identity());
+}
+
+void insert_preview(Eigen::Vector4d world_coordinates, UniformAttributes &uniform)
+{
+    int num_line_vertices = line_vertices.size();
+
+    // Add first vertex
+    if (num_line_vertices == 0)
+    {
+        line_vertices.push_back(get_vertex_attributes(world_coordinates));
+        line_vertices.push_back(get_vertex_attributes(world_coordinates));
+    }
+    // Add second vertex
+    else if (num_line_vertices == 2)
+    {
+        line_vertices.back().position = world_coordinates;
+        line_vertices.push_back(get_vertex_attributes(world_coordinates));
+        line_vertices.push_back(get_vertex_attributes(world_coordinates));
+        line_vertices.push_back(get_vertex_attributes(world_coordinates));
+        line_vertices.push_back(line_vertices[0]);
+    }
+    else
+    {
+        // Add new triangle
+        insert_triangle(line_vertices[0].position, line_vertices[1].position, world_coordinates, uniform);
+        line_vertices.clear();
+    }
+}
+
+void select_triangle(Eigen::Vector4d world_coordinates, UniformAttributes &uniform)
+{
+    remove_selection();
+
+    Eigen::Vector3d ray_origin = uniform.camera_position;
+    Eigen::Vector3d ray_direction = (world_coordinates.head<3>() - ray_origin).normalized();
+
+    // Select triangle
+    selected_index = find_nearest_object(ray_origin, ray_direction, uniform.model_transformations);
+    highlight_triangle(selected_index);
+}
+
+void delete_triangle(Eigen::Vector4d world_coordinates, UniformAttributes &uniform)
+{
+    Eigen::Vector3d ray_origin = uniform.camera_position;
+    Eigen::Vector3d ray_direction = (world_coordinates.head<3>() - ray_origin).normalized();
+
+    const int nearest_index = find_nearest_object(ray_origin, ray_direction, uniform.model_transformations);
+    if (nearest_index > -1)
+    {
+        int index_to_remove = nearest_index * 3;
+        triangle_vertices.erase(triangle_vertices.begin() + index_to_remove, triangle_vertices.begin() + index_to_remove + 3);
+        uniform.model_transformations.erase(uniform.model_transformations.begin() + nearest_index);
+    }
+}
+
+void update_preview(int x_screen, int y_screen, UniformAttributes &uniform)
+{
+    Eigen::Vector4d world_coords = get_world_coordinates(x_screen, y_screen, uniform.inverse_transformation);
+
+    int num_vertices = line_vertices.size();
+    if (num_vertices <= 2)
+    {
+        line_vertices.back().position = world_coords;
+    }
+    else
+    {
+        line_vertices[num_vertices - 2].position = world_coords;
+        line_vertices[num_vertices - 3].position = world_coords;
+    }
+}
+
+void update_translation(int xrel, int yrel, UniformAttributes &uniform)
+{
+    Eigen::Vector4d canonical_coords = Eigen::Vector4d((double(xrel) / double(width) * 2), (-double(yrel) / double(height) * 2), 0, 0);
+    Eigen::Vector4d world_coords = uniform.inverse_transformation * canonical_coords;
+    uniform.model_transformations[selected_index] = uniform.model_transformations[selected_index] * get_translation(world_coords.head<3>());
+}
+
+void reset_previous_mode()
+{
+    if (current_mode != INSERT_MODE)
+    {
+        line_vertices.clear();
+    }
+    if (current_mode != TRANSLATE_MODE)
+    {
+        remove_selection();
+    }
+}
+
+void change_mode(char key_pressed)
+{
+    switch (key_pressed)
+    {
+    case 'i':
+        current_mode = INSERT_MODE;
+        break;
+    case 'o':
+        current_mode = TRANSLATE_MODE;
+        break;
+    case 'p':
+        current_mode = DELETE_MODE;
+        break;
+    case 'z':
+        current_mode = NONE;
+        break;
+    }
+    reset_previous_mode();
+}
+
+void render_triangles_with_wireframe(
+    const Program &program,
+    const UniformAttributes &uniform,
+    std::vector<VertexAttributes> triangle_vertices)
+{
+    std::vector<VertexAttributes> line_vertices;
+    for (int i = 0; i < triangle_vertices.size() / 3; i++)
+    {
+        VertexAttributes a = triangle_vertices[i * 3 + 0];
+        VertexAttributes b = triangle_vertices[i * 3 + 1];
+        VertexAttributes c = triangle_vertices[i * 3 + 2];
+
+        // To avoid lines being hidden by faces
+        a.position[2] += 0.0005;
+        b.position[2] += 0.0005;
+        c.position[2] += 0.0005;
+
+        line_vertices.push_back(a);
+        line_vertices.push_back(b);
+
+        line_vertices.push_back(b);
+        line_vertices.push_back(c);
+
+        line_vertices.push_back(c);
+        line_vertices.push_back(a);
+    }
+
+    Eigen::Vector4d color = get_color_vector(BLACK);
+    for (int i = 0; i < line_vertices.size(); i++)
+    {
+        line_vertices[i].color = color;
+    }
+
+    rasterize_triangles(program, uniform, triangle_vertices, frameBuffer);
+    rasterize_lines(program, uniform, line_vertices, 1, frameBuffer);
 }
 
 int main(int argc, char *args[])
@@ -270,103 +444,49 @@ int main(int argc, char *args[])
 
     viewer.mouse_move = [&](int x, int y, int xrel, int yrel)
     {
-        int num_line_vertices = line_vertices.size();
-        if (insert_mode && num_line_vertices > 0)
+        switch (current_mode)
         {
-            Eigen::Vector4d canonical_coords = get_canonical_coordinates(x, y);
-            Eigen::Vector4d world_coords = uniform.inverse_transformation * canonical_coords;
-
-            if (num_line_vertices <= 2)
+        case INSERT_MODE:
+            if (line_vertices.size())
             {
-                line_vertices.back().position = world_coords;
+                update_preview(x, y, uniform);
+                viewer.redraw_next = true;
             }
-            else
+            break;
+        case TRANSLATE_MODE:
+            if (is_mouse_pressed && selected_index > -1)
             {
-                line_vertices[num_line_vertices - 2].position = world_coords;
-                line_vertices[num_line_vertices - 3].position = world_coords;
+                update_translation(xrel, yrel, uniform);
+                viewer.redraw_next = true;
             }
-            viewer.redraw_next = true;
-        }
-        else if (translate_mode && is_mouse_pressed && selected_index > -1)
-        {
-            Eigen::Vector4d canonical_coords = Eigen::Vector4d((double(xrel) / double(width) * 2), (-double(yrel) / double(height) * 2), 0, 0);
-            Eigen::Vector4d world_coords = uniform.inverse_transformation * canonical_coords;
-            uniform.model_transformations[selected_index] = uniform.model_transformations[selected_index] * get_translation(world_coords.head<3>());
-            viewer.redraw_next = true;
+        default:
+            break;
         }
     };
 
     viewer.mouse_pressed = [&](int x, int y, bool is_pressed, int button, int clicks)
     {
-        Eigen::Vector4d canonical_coords = get_canonical_coordinates(x, y);
-        Eigen::Vector4d world_coords = uniform.inverse_transformation * canonical_coords;
+        Eigen::Vector4d world_coords = get_world_coordinates(x, y, uniform.inverse_transformation);
         is_mouse_pressed = is_pressed;
 
-        if (insert_mode && is_pressed)
+        if (!is_mouse_pressed)
         {
-            int num_line_vertices = line_vertices.size();
-            if (num_line_vertices == 0)
-            {
-                line_vertices.push_back(get_vertex(world_coords));
-                line_vertices.push_back(get_vertex(world_coords));
-            }
-            else if (num_line_vertices == 2)
-            {
-                line_vertices.back().position = world_coords;
-                line_vertices.push_back(get_vertex(world_coords));
-                line_vertices.push_back(get_vertex(world_coords));
-                line_vertices.push_back(get_vertex(world_coords));
-                line_vertices.push_back(line_vertices.at(0));
-            }
-            else
-            {
-                int new_index = triangle_vertices.size() / 3;
-                triangle_vertices.push_back(get_vertex(line_vertices[0].position, new_index));
-                triangle_vertices.push_back(get_vertex(line_vertices[1].position, new_index));
-                triangle_vertices.push_back(get_vertex(world_coords, new_index));
-
-                uniform.model_transformations.push_back(Eigen::Matrix4d::Identity());
-
-                int num_triangle_vertices = triangle_vertices.size();
-                triangle_vertices[num_triangle_vertices - 1].color << 1, 0, 0, 1;
-                triangle_vertices[num_triangle_vertices - 2].color << 1, 0, 0, 1;
-                triangle_vertices[num_triangle_vertices - 3].color << 1, 0, 0, 1;
-                line_vertices.clear();
-            }
+            return;
         }
-        else if (delete_mode && is_pressed)
-        {
-            Eigen::Vector3d ray_origin = uniform.camera_position;
-            Eigen::Vector3d ray_direction = (world_coords.head<3>() - ray_origin).normalized();
 
-            const int nearest_index = find_nearest_object(ray_origin, ray_direction, uniform.model_transformations);
-            if (nearest_index > -1)
-            {
-                int index_to_remove = nearest_index * 3;
-                triangle_vertices.erase(triangle_vertices.begin() + index_to_remove, triangle_vertices.begin() + index_to_remove + 3);
-                uniform.model_transformations.erase(uniform.model_transformations.begin() + nearest_index);
-            }
-        }
-        else if (translate_mode && is_pressed)
+        switch (current_mode)
         {
-            if (selected_index > -1)
-            {
-                triangle_vertices[selected_index * 3 + 0].color = Eigen::Vector4d(1, 0, 0, 1);
-                triangle_vertices[selected_index * 3 + 1].color = Eigen::Vector4d(1, 0, 0, 1);
-                triangle_vertices[selected_index * 3 + 2].color = Eigen::Vector4d(1, 0, 0, 1);
-            }
-            selected_index = -1;
-            Eigen::Vector3d ray_origin = uniform.camera_position;
-            Eigen::Vector3d ray_direction = (world_coords.head<3>() - ray_origin).normalized();
-
-            selected_index = find_nearest_object(ray_origin, ray_direction, uniform.model_transformations);
-            if (selected_index > -1)
-            {
-                triangle_vertices[selected_index * 3 + 0].color = Eigen::Vector4d(0, 0, 1, 1);
-                triangle_vertices[selected_index * 3 + 1].color = Eigen::Vector4d(0, 0, 1, 1);
-                triangle_vertices[selected_index * 3 + 2].color = Eigen::Vector4d(0, 0, 1, 1);
-                ;
-            }
+        case INSERT_MODE:
+            insert_preview(world_coords, uniform);
+            break;
+        case TRANSLATE_MODE:
+            select_triangle(world_coords, uniform);
+            break;
+        case DELETE_MODE:
+            delete_triangle(world_coords, uniform);
+            break;
+        default:
+            break;
         }
 
         viewer.redraw_next = true;
@@ -377,47 +497,8 @@ int main(int argc, char *args[])
 
     viewer.key_pressed = [&](char key, bool is_pressed, int modifier, int repeat)
     {
-        switch (key)
-        {
-        case 'i':
-            insert_mode = true;
-            delete_mode = false;
-            translate_mode = false;
-            viewer.redraw_next = true;
-            break;
-        case 'o':
-            translate_mode = true;
-            insert_mode = false;
-            line_vertices.clear();
-            delete_mode = false;
-            viewer.redraw_next = true;
-            break;
-        case 'p':
-            delete_mode = true;
-            insert_mode = false;
-            line_vertices.clear();
-            translate_mode = false;
-            viewer.redraw_next = true;
-            break;
-        case 'z':
-            insert_mode = false;
-            line_vertices.clear();
-
-            translate_mode = false;
-            if (selected_index > -1)
-            {
-                triangle_vertices[selected_index * 3 + 0].color = Eigen::Vector4d(1, 0, 0, 1);
-                triangle_vertices[selected_index * 3 + 1].color = Eigen::Vector4d(1, 0, 0, 1);
-                triangle_vertices[selected_index * 3 + 2].color = Eigen::Vector4d(1, 0, 0, 1);
-                ;
-            }
-            selected_index = -1;
-
-            delete_mode = false;
-            translate_mode = false;
-            viewer.redraw_next = true;
-            break;
-        }
+        change_mode(key);
+        viewer.redraw_next = true;
     };
 
     viewer.redraw = [&](SDLViewer &viewer)
@@ -425,8 +506,10 @@ int main(int argc, char *args[])
         // Clear the framebuffer
         frameBuffer.setConstant(FrameBufferAttributes());
 
+        // Render inserted triangles
         render_triangles_with_wireframe(program, uniform, triangle_vertices);
 
+        // Render insert preview
         rasterize_lines(program, uniform, line_vertices, 1, frameBuffer);
 
         // Buffer for exchanging data between rasterizer and sdl viewer
