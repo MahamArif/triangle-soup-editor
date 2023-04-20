@@ -22,12 +22,27 @@ Eigen::Matrix<FrameBufferAttributes, Eigen::Dynamic, Eigen::Dynamic> frameBuffer
 const double near = 0.1;
 const double far = 100;
 
+// For insertion preview, we need to keep separate line and triangle vertices
 std::vector<VertexAttributes> triangle_vertices;
 std::vector<VertexAttributes> line_vertices;
 
+// Modes
 bool insert_mode = false;
 bool translate_mode = false;
 bool delete_mode = false;
+
+int selected_index = -1;
+bool is_mouse_pressed = false;
+
+Eigen::Matrix4d get_translation(Eigen::Vector3d translation)
+{
+    Eigen::Matrix4d translation_matrix;
+    translation_matrix << 1, 0, 0, translation(0),
+        0, 1, 0, translation(1),
+        0, 0, 1, translation(2),
+        0, 0, 0, 1;
+    return translation_matrix;
+}
 
 Eigen::Matrix4d get_camera_transformation(Eigen::Vector3d camera_position)
 {
@@ -93,10 +108,11 @@ Eigen::Vector4d get_canonical_coordinates(int x_screen, int y_screen)
     return Eigen::Vector4d((double(x_screen) / double(width) * 2) - 1, (double(height - 1 - y_screen) / double(height) * 2) - 1, 0, 1);
 }
 
-VertexAttributes get_vertex(Eigen::Vector4d &coordinates)
+VertexAttributes get_vertex(Eigen::Vector4d &coordinates, int object_id = -1)
 {
     VertexAttributes vertex(coordinates(0), coordinates(1), coordinates(2));
     vertex.color << 0, 0, 0, 1;
+    vertex.object_id = object_id;
     return vertex;
 }
 
@@ -159,7 +175,7 @@ double ray_triangle_intersection(const Eigen::Vector3d &ray_origin, const Eigen:
 }
 
 // Finds the closest intersecting object returns its index
-int find_nearest_object(const Eigen::Vector3d &ray_origin, const Eigen::Vector3d &ray_direction)
+int find_nearest_object(const Eigen::Vector3d &ray_origin, const Eigen::Vector3d &ray_direction, const std::vector<Eigen::Matrix4d> &model_transformations)
 {
     int closest_index = -1;
     double closest_t = std::numeric_limits<double>::max(); // closest t is "+ infinity"
@@ -169,12 +185,17 @@ int find_nearest_object(const Eigen::Vector3d &ray_origin, const Eigen::Vector3d
         VertexAttributes a = triangle_vertices.at(i * 3 + 0);
         VertexAttributes b = triangle_vertices.at(i * 3 + 1);
         VertexAttributes c = triangle_vertices.at(i * 3 + 2);
+
+        Eigen::Vector4d vertex_a = model_transformations[i] * a.position;
+        Eigen::Vector4d vertex_b = model_transformations[i] * b.position;
+        Eigen::Vector4d vertex_c = model_transformations[i] * c.position;
+
         const double t = ray_triangle_intersection(
             ray_origin,
             ray_direction,
-            a.position.head<3>(),
-            b.position.head<3>(),
-            c.position.head<3>());
+            vertex_a.head<3>(),
+            vertex_b.head<3>(),
+            vertex_c.head<3>());
 
         // We have intersection and the point is before our current closest t
         if (t >= 0 && t < closest_t)
@@ -199,7 +220,8 @@ int main(int argc, char *args[])
     program.VertexShader = [](const VertexAttributes &va, const UniformAttributes &uniform)
     {
         VertexAttributes out;
-        out.position = uniform.transformation * va.position;
+        Eigen::Matrix4d model = va.object_id > -1 ? uniform.model_transformations[va.object_id] : Eigen::Matrix4d::Identity();
+        out.position = uniform.transformation * model * va.position;
         out.color = va.color;
         return out;
     };
@@ -265,12 +287,20 @@ int main(int argc, char *args[])
             }
             viewer.redraw_next = true;
         }
+        else if (translate_mode && is_mouse_pressed && selected_index > -1)
+        {
+            Eigen::Vector4d canonical_coords = Eigen::Vector4d((double(xrel) / double(width) * 2), (-double(yrel) / double(height) * 2), 0, 0);
+            Eigen::Vector4d world_coords = uniform.inverse_transformation * canonical_coords;
+            uniform.model_transformations[selected_index] = uniform.model_transformations[selected_index] * get_translation(world_coords.head<3>());
+            viewer.redraw_next = true;
+        }
     };
 
     viewer.mouse_pressed = [&](int x, int y, bool is_pressed, int button, int clicks)
     {
         Eigen::Vector4d canonical_coords = get_canonical_coordinates(x, y);
         Eigen::Vector4d world_coords = uniform.inverse_transformation * canonical_coords;
+        is_mouse_pressed = is_pressed;
 
         if (insert_mode && is_pressed)
         {
@@ -290,9 +320,12 @@ int main(int argc, char *args[])
             }
             else
             {
-                triangle_vertices.push_back(line_vertices.at(0));
-                triangle_vertices.push_back(line_vertices.at(1));
-                triangle_vertices.push_back(get_vertex(world_coords));
+                int new_index = triangle_vertices.size() / 3;
+                triangle_vertices.push_back(get_vertex(line_vertices[0].position, new_index));
+                triangle_vertices.push_back(get_vertex(line_vertices[1].position, new_index));
+                triangle_vertices.push_back(get_vertex(world_coords, new_index));
+
+                uniform.model_transformations.push_back(Eigen::Matrix4d::Identity());
 
                 int num_triangle_vertices = triangle_vertices.size();
                 triangle_vertices[num_triangle_vertices - 1].color << 1, 0, 0, 1;
@@ -301,17 +334,38 @@ int main(int argc, char *args[])
                 line_vertices.clear();
             }
         }
-
-        if (delete_mode && is_pressed)
+        else if (delete_mode && is_pressed)
         {
             Eigen::Vector3d ray_origin = uniform.camera_position;
             Eigen::Vector3d ray_direction = (world_coords.head<3>() - ray_origin).normalized();
 
-            const int nearest_index = find_nearest_object(ray_origin, ray_direction);
+            const int nearest_index = find_nearest_object(ray_origin, ray_direction, uniform.model_transformations);
             if (nearest_index > -1)
             {
                 int index_to_remove = nearest_index * 3;
                 triangle_vertices.erase(triangle_vertices.begin() + index_to_remove, triangle_vertices.begin() + index_to_remove + 3);
+                uniform.model_transformations.erase(uniform.model_transformations.begin() + nearest_index);
+            }
+        }
+        else if (translate_mode && is_pressed)
+        {
+            if (selected_index > -1)
+            {
+                triangle_vertices[selected_index * 3 + 0].color = Eigen::Vector4d(1, 0, 0, 1);
+                triangle_vertices[selected_index * 3 + 1].color = Eigen::Vector4d(1, 0, 0, 1);
+                triangle_vertices[selected_index * 3 + 2].color = Eigen::Vector4d(1, 0, 0, 1);
+            }
+            selected_index = -1;
+            Eigen::Vector3d ray_origin = uniform.camera_position;
+            Eigen::Vector3d ray_direction = (world_coords.head<3>() - ray_origin).normalized();
+
+            selected_index = find_nearest_object(ray_origin, ray_direction, uniform.model_transformations);
+            if (selected_index > -1)
+            {
+                triangle_vertices[selected_index * 3 + 0].color = Eigen::Vector4d(0, 0, 1, 1);
+                triangle_vertices[selected_index * 3 + 1].color = Eigen::Vector4d(0, 0, 1, 1);
+                triangle_vertices[selected_index * 3 + 2].color = Eigen::Vector4d(0, 0, 1, 1);
+                ;
             }
         }
 
@@ -328,21 +382,39 @@ int main(int argc, char *args[])
         case 'i':
             insert_mode = true;
             delete_mode = false;
+            translate_mode = false;
+            viewer.redraw_next = true;
             break;
         case 'o':
             translate_mode = true;
+            insert_mode = false;
+            line_vertices.clear();
+            delete_mode = false;
+            viewer.redraw_next = true;
             break;
         case 'p':
             delete_mode = true;
             insert_mode = false;
             line_vertices.clear();
+            translate_mode = false;
             viewer.redraw_next = true;
             break;
         case 'z':
             insert_mode = false;
             line_vertices.clear();
+
             translate_mode = false;
+            if (selected_index > -1)
+            {
+                triangle_vertices[selected_index * 3 + 0].color = Eigen::Vector4d(1, 0, 0, 1);
+                triangle_vertices[selected_index * 3 + 1].color = Eigen::Vector4d(1, 0, 0, 1);
+                triangle_vertices[selected_index * 3 + 2].color = Eigen::Vector4d(1, 0, 0, 1);
+                ;
+            }
+            selected_index = -1;
+
             delete_mode = false;
+            translate_mode = false;
             viewer.redraw_next = true;
             break;
         }
