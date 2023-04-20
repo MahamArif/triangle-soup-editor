@@ -13,7 +13,7 @@
 
 // Frame Size
 const int width = 1000;
-const int height = 1000;
+const int height = 700;
 
 // The Framebuffer storing the image rendered by the rasterizer
 Eigen::Matrix<FrameBufferAttributes, Eigen::Dynamic, Eigen::Dynamic> frameBuffer(width, height);
