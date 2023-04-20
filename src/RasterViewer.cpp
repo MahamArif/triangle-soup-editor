@@ -49,6 +49,37 @@ enum color
 int selected_index = -1;
 bool is_mouse_pressed = false;
 
+// Rotation angle in degrees
+double angle = 10.0;
+
+Eigen::Matrix4d get_clockwise_rotation(double angle_in_degrees)
+{
+	double angle_in_radians = 2 * M_PI * (angle_in_degrees / 360);
+
+	// Rotating the object
+	Eigen::Matrix4d rotation_transform;
+	rotation_transform << cos(angle_in_radians), sin(angle_in_radians), 0, 0,
+		-sin(angle_in_radians), cos(angle_in_radians), 0, 0,
+		0, 0, 1, 0,
+		0, 0, 0, 1;
+
+	return rotation_transform;
+}
+
+Eigen::Matrix4d get_anticlockwise_rotation(double angle_in_degrees)
+{
+	double angle_in_radians = 2 * M_PI * (angle_in_degrees / 360);
+
+	// Rotating the object
+	Eigen::Matrix4d rotation_transform;
+	rotation_transform << cos(angle_in_radians), -sin(angle_in_radians), 0, 0,
+		sin(angle_in_radians), cos(angle_in_radians), 0, 0,
+		0, 0, 1, 0,
+		0, 0, 0, 1;
+
+	return rotation_transform;
+}
+
 Eigen::Matrix4d get_translation(Eigen::Vector3d translation)
 {
     Eigen::Matrix4d translation_matrix;
@@ -313,6 +344,29 @@ void update_translation(int xrel, int yrel, UniformAttributes &uniform)
     uniform.model_transformations[selected_index] = uniform.model_transformations[selected_index] * get_translation(world_coords.head<3>());
 }
 
+void update_rotation(UniformAttributes &uniform, bool is_clockwise = true) {
+    if (selected_index == -1) {
+        return;
+    }
+
+    // Selected triangle
+    Eigen::Vector4d a = triangle_vertices[selected_index * 3 + 0].position;
+    Eigen::Vector4d b = triangle_vertices[selected_index * 3 + 1].position;
+    Eigen::Vector4d c = triangle_vertices[selected_index * 3 + 2].position;
+
+    // Compute barycenter of selected triangle
+    double center_x = (a(0) + b(0) + c(0)) / 3.0;
+    double center_y = (a(1) + b(1) + c(1)) / 3.0;
+    double center_z = (a(2) + b(2) + c(2)) / 3.0;
+    Eigen::Vector3d center_coords = Eigen::Vector3d(center_x, center_y, center_z);
+
+    Eigen::Matrix4d rotation_matrix = is_clockwise ? get_clockwise_rotation(angle) : get_anticlockwise_rotation(angle);
+	Eigen::Matrix4d rotation = get_translation(center_coords) * rotation_matrix * get_translation(-1 * center_coords);
+
+    // Update rotation
+	uniform.model_transformations[selected_index] = uniform.model_transformations[selected_index] * rotation;
+} 
+
 void reset_previous_mode()
 {
     if (current_mode != INSERT_MODE)
@@ -497,7 +551,23 @@ int main(int argc, char *args[])
 
     viewer.key_pressed = [&](char key, bool is_pressed, int modifier, int repeat)
     {
-        change_mode(key);
+        switch (key)
+        {
+        case 'i':
+        case 'o':
+        case 'p':
+        case 'z':
+            change_mode(key);
+            break;
+        case 'h':
+            update_rotation(uniform);
+            break;
+        case 'j':
+            update_rotation(uniform, false);
+            break;
+        default:
+            break;
+        }
         viewer.redraw_next = true;
     };
 
