@@ -96,6 +96,16 @@ Eigen::Matrix4d get_translation(const Eigen::Vector3d &translation)
     return translation_matrix;
 }
 
+Eigen::Matrix4d get_scaling(double scale = 1)
+{
+    Eigen::Matrix4d scaling_transformation;
+    scaling_transformation << scale, 0, 0, 0,
+        0, scale, 0, 0,
+        0, 0, scale, 0,
+        0, 0, 0, 1;
+    return scaling_transformation;
+}
+
 Eigen::Matrix4d get_camera_transformation(const Eigen::Vector3d &camera_position)
 {
     // Calculate the look-at and view direction
@@ -373,6 +383,30 @@ void update_rotation(bool is_clockwise = true)
     model_transformations[selected_index] = model_transformations[selected_index] * rotation;
 }
 
+void update_scaling(double scale_factor)
+{
+    if (selected_index == -1)
+    {
+        return;
+    }
+
+    // Selected triangle
+    Eigen::Vector4d a = triangle_vertices[selected_index * 3 + 0].position;
+    Eigen::Vector4d b = triangle_vertices[selected_index * 3 + 1].position;
+    Eigen::Vector4d c = triangle_vertices[selected_index * 3 + 2].position;
+
+    // Compute barycenter of selected triangle
+    double center_x = (a(0) + b(0) + c(0)) / 3.0;
+    double center_y = (a(1) + b(1) + c(1)) / 3.0;
+    double center_z = (a(2) + b(2) + c(2)) / 3.0;
+    Eigen::Vector3d center_coords = Eigen::Vector3d(center_x, center_y, center_z);
+
+    Eigen::Matrix4d scale_transform = get_translation(center_coords) * get_scaling(scale_factor) * get_translation(-1 * center_coords);
+
+    // Update rotation
+    model_transformations[selected_index] = model_transformations[selected_index] * scale_transform;
+}
+
 void reset_previous_mode()
 {
     if (current_mode != INSERT_MODE)
@@ -581,6 +615,12 @@ int main(int argc, char *args[])
             break;
         case 'j':
             update_rotation(false);
+            break;
+        case 'k':
+            update_scaling(1.25);
+            break;
+        case 'l':
+            update_scaling(0.75);
             break;
         default:
             break;
