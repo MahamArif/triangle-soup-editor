@@ -10,7 +10,6 @@ public:
 	{
 		position << x, y, z, w;
 		color << 1, 1, 1, 1;
-		object_id = -1;
 	}
 
 	// Interpolates the vertex attributes
@@ -30,7 +29,6 @@ public:
 
 	Eigen::Vector4d position;
 	Eigen::Vector4d color;
-	int object_id;
 };
 
 class FragmentAttributes
@@ -61,8 +59,7 @@ public:
 class UniformAttributes
 {
 public:
-	Eigen::Matrix4d transformation;
-	Eigen::Matrix4d inverse_transformation;
+	Eigen::Matrix4d model_transformation;
+	Eigen::Matrix4d world_transformation;
 	Eigen::Vector3d camera_position;
-	std::vector<Eigen::Matrix4d> model_transformations;
 };
