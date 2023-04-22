@@ -275,29 +275,6 @@ VertexAttributes get_vertex_attributes(const Eigen::Vector4d &coordinates, Color
     return vertex;
 }
 
-void highlight_triangle(int selected_triangle)
-{
-    if (selected_triangle > -1)
-    {
-        Eigen::Vector4d color = get_color_vector(BLUE);
-        triangle_vertices[selected_triangle * 3 + 0].color = color;
-        triangle_vertices[selected_triangle * 3 + 1].color = color;
-        triangle_vertices[selected_triangle * 3 + 2].color = color;
-    }
-}
-
-void remove_selection()
-{
-    if (selected_triangle > -1)
-    {
-        Eigen::Vector4d color = get_color_vector(RED);
-        triangle_vertices[selected_triangle * 3 + 0].color = color;
-        triangle_vertices[selected_triangle * 3 + 1].color = color;
-        triangle_vertices[selected_triangle * 3 + 2].color = color;
-    }
-    selected_triangle = -1;
-}
-
 void insert_triangle(const Eigen::Vector4d &a, const Eigen::Vector4d &b, const Eigen::Vector4d &c)
 {
     triangle_vertices.push_back(get_vertex_attributes(a, RED));
@@ -336,14 +313,11 @@ void insert_preview(const Eigen::Vector4d &world_coordinates)
 
 void select_triangle(const Eigen::Vector4d &world_coordinates, const Eigen::Vector3d &camera_position)
 {
-    remove_selection();
-
     Eigen::Vector3d ray_origin = camera_position;
     Eigen::Vector3d ray_direction = (world_coordinates.head<3>() - ray_origin).normalized();
 
     // Select triangle
     selected_triangle = find_nearest_object(ray_origin, ray_direction);
-    highlight_triangle(selected_triangle);
 }
 
 void delete_triangle(const Eigen::Vector4d &world_coordinates, const Eigen::Vector3d &camera_position)
@@ -471,7 +445,7 @@ void reset_previous_mode()
     }
     if (current_mode != TRANSLATE_MODE)
     {
-        remove_selection();
+        selected_triangle = -1;
     }
     if (current_mode != COLOR_MODE)
     {
@@ -540,7 +514,10 @@ void render_triangles_with_wireframe(
         }
 
         uniform.model_transformation = model_transformations[i];
+        uniform.is_object_highlighted = selected_triangle == i;
         rasterize_triangles(program, uniform, triangle, frameBuffer);
+
+        uniform.is_object_highlighted = false;
         rasterize_lines(program, uniform, lines, 1, frameBuffer);
     }
 }
@@ -558,7 +535,7 @@ int main(int argc, char *args[])
     {
         VertexAttributes out;
         out.position = uniform.world_transformation * uniform.model_transformation * va.position;
-        out.color = va.color;
+        out.color = uniform.is_object_highlighted ? get_color_vector(BLUE) : va.color;
         return out;
     };
 
@@ -710,6 +687,7 @@ int main(int argc, char *args[])
         render_triangles_with_wireframe(program, uniform, triangle_vertices);
 
         // Render insert preview
+        uniform.is_object_highlighted = false;
         uniform.model_transformation.setIdentity();
         rasterize_lines(program, uniform, line_vertices, 1, frameBuffer);
 

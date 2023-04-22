@@ -62,4 +62,5 @@ public:
 	Eigen::Matrix4d model_transformation;
 	Eigen::Matrix4d world_transformation;
 	Eigen::Vector3d camera_position;
+	bool is_object_highlighted;
 };
