@@ -23,7 +23,7 @@ const double near = 0.1;
 const double far = 100;
 
 // For highlighting triangle
-int selected_index = -1;
+int selected_triangle = -1;
 bool is_mouse_pressed = false;
 
 // Rotation angle in degrees
@@ -272,27 +272,27 @@ VertexAttributes get_vertex_attributes(const Eigen::Vector4d &coordinates, color
     return vertex;
 }
 
-void highlight_triangle(int selected_index)
+void highlight_triangle(int selected_triangle)
 {
-    if (selected_index > -1)
+    if (selected_triangle > -1)
     {
         Eigen::Vector4d color = get_color_vector(BLUE);
-        triangle_vertices[selected_index * 3 + 0].color = color;
-        triangle_vertices[selected_index * 3 + 1].color = color;
-        triangle_vertices[selected_index * 3 + 2].color = color;
+        triangle_vertices[selected_triangle * 3 + 0].color = color;
+        triangle_vertices[selected_triangle * 3 + 1].color = color;
+        triangle_vertices[selected_triangle * 3 + 2].color = color;
     }
 }
 
 void remove_selection()
 {
-    if (selected_index > -1)
+    if (selected_triangle > -1)
     {
         Eigen::Vector4d color = get_color_vector(RED);
-        triangle_vertices[selected_index * 3 + 0].color = color;
-        triangle_vertices[selected_index * 3 + 1].color = color;
-        triangle_vertices[selected_index * 3 + 2].color = color;
+        triangle_vertices[selected_triangle * 3 + 0].color = color;
+        triangle_vertices[selected_triangle * 3 + 1].color = color;
+        triangle_vertices[selected_triangle * 3 + 2].color = color;
     }
-    selected_index = -1;
+    selected_triangle = -1;
 }
 
 void insert_triangle(const Eigen::Vector4d &a, const Eigen::Vector4d &b, const Eigen::Vector4d &c)
@@ -339,8 +339,8 @@ void select_triangle(const Eigen::Vector4d &world_coordinates, const Eigen::Vect
     Eigen::Vector3d ray_direction = (world_coordinates.head<3>() - ray_origin).normalized();
 
     // Select triangle
-    selected_index = find_nearest_object(ray_origin, ray_direction);
-    highlight_triangle(selected_index);
+    selected_triangle = find_nearest_object(ray_origin, ray_direction);
+    highlight_triangle(selected_triangle);
 }
 
 void delete_triangle(const Eigen::Vector4d &world_coordinates, const Eigen::Vector3d &camera_position)
@@ -377,20 +377,20 @@ void update_translation(int xrel, int yrel)
 {
     Eigen::Vector4d canonical_coords = Eigen::Vector4d((double(xrel) / double(width) * 2), (-double(yrel) / double(height) * 2), 0, 0);
     Eigen::Vector4d world_coords = inverse_transformation * canonical_coords;
-    model_transformations[selected_index] = model_transformations[selected_index] * get_translation(world_coords.head<3>());
+    model_transformations[selected_triangle] = model_transformations[selected_triangle] * get_translation(world_coords.head<3>());
 }
 
 void update_rotation(bool is_clockwise = true)
 {
-    if (selected_index == -1)
+    if (selected_triangle == -1)
     {
         return;
     }
 
     // Selected triangle
-    Eigen::Vector4d a = triangle_vertices[selected_index * 3 + 0].position;
-    Eigen::Vector4d b = triangle_vertices[selected_index * 3 + 1].position;
-    Eigen::Vector4d c = triangle_vertices[selected_index * 3 + 2].position;
+    Eigen::Vector4d a = triangle_vertices[selected_triangle * 3 + 0].position;
+    Eigen::Vector4d b = triangle_vertices[selected_triangle * 3 + 1].position;
+    Eigen::Vector4d c = triangle_vertices[selected_triangle * 3 + 2].position;
 
     // Compute barycenter of selected triangle
     double center_x = (a(0) + b(0) + c(0)) / 3.0;
@@ -402,20 +402,20 @@ void update_rotation(bool is_clockwise = true)
     Eigen::Matrix4d rotation = get_translation(center_coords) * rotation_matrix * get_translation(-1 * center_coords);
 
     // Update rotation
-    model_transformations[selected_index] = model_transformations[selected_index] * rotation;
+    model_transformations[selected_triangle] = model_transformations[selected_triangle] * rotation;
 }
 
 void update_scaling(double scale_factor)
 {
-    if (selected_index == -1)
+    if (selected_triangle == -1)
     {
         return;
     }
 
     // Selected triangle
-    Eigen::Vector4d a = triangle_vertices[selected_index * 3 + 0].position;
-    Eigen::Vector4d b = triangle_vertices[selected_index * 3 + 1].position;
-    Eigen::Vector4d c = triangle_vertices[selected_index * 3 + 2].position;
+    Eigen::Vector4d a = triangle_vertices[selected_triangle * 3 + 0].position;
+    Eigen::Vector4d b = triangle_vertices[selected_triangle * 3 + 1].position;
+    Eigen::Vector4d c = triangle_vertices[selected_triangle * 3 + 2].position;
 
     // Compute barycenter of selected triangle
     double center_x = (a(0) + b(0) + c(0)) / 3.0;
@@ -426,7 +426,7 @@ void update_scaling(double scale_factor)
     Eigen::Matrix4d scale_transform = get_translation(center_coords) * get_scaling(scale_factor) * get_translation(-1 * center_coords);
 
     // Update rotation
-    model_transformations[selected_index] = model_transformations[selected_index] * scale_transform;
+    model_transformations[selected_triangle] = model_transformations[selected_triangle] * scale_transform;
 }
 
 void reset_previous_mode()
@@ -584,7 +584,7 @@ int main(int argc, char *args[])
             }
             break;
         case TRANSLATE_MODE:
-            if (is_mouse_pressed && selected_index > -1)
+            if (is_mouse_pressed && selected_triangle > -1)
             {
                 update_translation(xrel, yrel);
                 viewer.redraw_next = true;
