@@ -19,8 +19,14 @@ const int height = 700;
 Eigen::Matrix<FrameBufferAttributes, Eigen::Dynamic, Eigen::Dynamic> frameBuffer(width, height);
 
 // Orthographic and Perspective Projection
+const double aspect_ratio = double(frameBuffer.cols()) / double(frameBuffer.rows());
 const double near = 0.1;
 const double far = 100;
+const double top = 16;
+const double right = top;
+
+// For zoom in/zoom out
+double zoom_factor = 1.0;
 
 // For highlighting triangle
 int selected_triangle = -1;
@@ -178,11 +184,13 @@ Eigen::Matrix4d get_perspective_projection()
     return perspective_projection;
 }
 
-Eigen::Matrix4d get_orthographic_projection(double top, double right)
+Eigen::Matrix4d get_orthographic_projection(double height, double width, double zoom_factor = 1.0)
 {
     // Specifying the bounding box coordinates for canonical cube
-    double left = -right;
-    double bottom = -top;
+    double left = -width * zoom_factor;
+    double right = width * zoom_factor;
+    double top = height * zoom_factor;
+    double bottom = -height * zoom_factor;
 
     Eigen::Matrix4d ortho_projection;
     ortho_projection << 2 / (right - left), 0, 0, -(right + left) / (right - left),
@@ -406,6 +414,17 @@ void update_scaling(double scale_factor)
     model_transformations[selected_triangle] = model_transformations[selected_triangle] * scale_transform;
 }
 
+void update_zoom_transformation(UniformAttributes &uniform) {
+    Eigen::Matrix4d camera_transformation = get_camera_transformation(uniform.camera_position);
+    Eigen::Matrix4d perspective_projection = Eigen::Matrix4d::Identity();
+    Eigen::Matrix4d ortho_projection = get_orthographic_projection(top, right, zoom_factor);
+    Eigen::Matrix4d view = get_view_transformation(aspect_ratio);
+    uniform.world_transformation = view * ortho_projection * perspective_projection * camera_transformation;
+
+    // Computing inverse transformation
+    inverse_transformation = uniform.world_transformation.inverse();
+}
+
 // Finds the closest vertex to the mouse position
 int find_closest_vertex(const Eigen::Vector4d &mouse_position)
 {
@@ -560,23 +579,11 @@ int main(int argc, char *args[])
             return previous;
     };
 
-    // Add a transformation to compensate for the aspect ratio of the framebuffer
-    double aspect_ratio = double(frameBuffer.cols()) / double(frameBuffer.rows());
-    double top = 16;
-    double right = top;
-
     // Orthographic Projection
     // Set the transformations for camera space and orthographic projection
     uniform.camera_position = Eigen::Vector3d(0, 0, -5);
 
-    Eigen::Matrix4d camera_transformation = get_camera_transformation(uniform.camera_position);
-    Eigen::Matrix4d perspective_projection = Eigen::Matrix4d::Identity();
-    Eigen::Matrix4d ortho_projection = get_orthographic_projection(top, right);
-    Eigen::Matrix4d view = get_view_transformation(aspect_ratio);
-    uniform.world_transformation = view * ortho_projection * perspective_projection * camera_transformation;
-
-    // Computing inverse transformation
-    inverse_transformation = uniform.world_transformation.inverse();
+    update_zoom_transformation(uniform);
 
     // Initialize the viewer and the corresponding callbacks
     SDLViewer viewer;
@@ -640,6 +647,10 @@ int main(int argc, char *args[])
 
     viewer.key_pressed = [&](char key, bool is_pressed, int modifier, int repeat)
     {
+        if (!is_pressed) {
+            return;
+        }
+        
         switch (key)
         {
         case 'c':
@@ -672,9 +683,28 @@ int main(int argc, char *args[])
         case '9':
             change_vertex_color(key);
             break;
+        case SDLK_PLUS:
+        case SDLK_KP_PLUS:
+            zoom_factor /= 1.2; // Decrease zoom factor to zoom in
+            update_zoom_transformation(uniform);
+            break;
+        case SDLK_MINUS:
+        case SDLK_KP_MINUS:
+            zoom_factor *= 1.2; // Increase zoom factor to zoom out
+            update_zoom_transformation(uniform);
+            break;
         default:
             break;
         }
+
+        bool isShiftPressed = (SDL_GetModState() & KMOD_SHIFT) != 0;
+        bool isPlusKeyPressed = isShiftPressed && key == SDLK_EQUALS;
+
+        if (isPlusKeyPressed) {
+            zoom_factor /= 1.2; // Decrease zoom factor to zoom in
+            update_zoom_transformation(uniform);
+        }
+
         viewer.redraw_next = true;
     };
 
