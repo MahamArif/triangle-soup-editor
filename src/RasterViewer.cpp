@@ -39,6 +39,9 @@ Eigen::Matrix4d inverse_transformation;
 // Model transformations (translation, rotation, and scaling) for each triangle
 std::vector<Eigen::Matrix4d> model_transformations;
 
+// To change the color of vertex
+int selected_vertex = -1;
+
 // Modes
 enum Mode
 {
@@ -429,6 +432,37 @@ void update_scaling(double scale_factor)
     model_transformations[selected_triangle] = model_transformations[selected_triangle] * scale_transform;
 }
 
+// Finds the closest vertex to the mouse position
+int find_closest_vertex(const Eigen::Vector4d &mouse_position)
+{
+    int closest_index = -1;
+    double closest_distance = std::numeric_limits<double>::max(); // closest distance is "+ infinity"
+
+    for (int i = 0; i < triangle_vertices.size(); i++)
+    {
+        Eigen::Vector4d vertex = model_transformations[i / 3] * triangle_vertices[i].position;
+        const double distance = (vertex - mouse_position).norm();
+
+        if (distance < closest_distance)
+        {
+            closest_index = i;
+            closest_distance = distance;
+        }
+    }
+
+    return closest_index;
+}
+
+void change_vertex_color(char key)
+{
+    if (current_mode == COLOR_MODE && selected_vertex > -1)
+    {
+        int color_code = key - '0';
+        Color selected_color = static_cast<Color>(color_code);
+        triangle_vertices[selected_vertex].color = get_color_vector(selected_color);
+    }
+}
+
 void reset_previous_mode()
 {
     if (current_mode != INSERT_MODE)
@@ -438,6 +472,10 @@ void reset_previous_mode()
     if (current_mode != TRANSLATE_MODE)
     {
         remove_selection();
+    }
+    if (current_mode != COLOR_MODE)
+    {
+        selected_vertex = -1;
     }
 }
 
@@ -610,6 +648,9 @@ int main(int argc, char *args[])
         case DELETE_MODE:
             delete_triangle(world_coords, uniform.camera_position);
             break;
+        case COLOR_MODE:
+            selected_vertex = find_closest_vertex(world_coords);
+            break;
         default:
             break;
         }
@@ -642,6 +683,17 @@ int main(int argc, char *args[])
             break;
         case 'l':
             update_scaling(0.75);
+            break;
+        case '1':
+        case '2':
+        case '3':
+        case '4':
+        case '5':
+        case '6':
+        case '7':
+        case '8':
+        case '9':
+            change_vertex_color(key);
             break;
         default:
             break;
