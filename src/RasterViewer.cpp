@@ -354,7 +354,7 @@ void update_translation(int xrel, int yrel)
 {
     Eigen::Vector4d canonical_coords = Eigen::Vector4d((double(xrel) / double(width) * 2), (-double(yrel) / double(height) * 2), 0, 0);
     Eigen::Vector4d world_coords = inverse_transformation * canonical_coords;
-    model_transformations[selected_triangle] = model_transformations[selected_triangle] * get_translation(world_coords.head<3>());
+    model_transformations[selected_triangle] = get_translation(world_coords.head<3>()) * model_transformations[selected_triangle];
 }
 
 void update_rotation(bool is_clockwise = true)
