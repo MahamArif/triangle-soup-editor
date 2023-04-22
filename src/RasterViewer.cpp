@@ -40,7 +40,7 @@ Eigen::Matrix4d inverse_transformation;
 std::vector<Eigen::Matrix4d> model_transformations;
 
 // Modes
-enum mode
+enum Mode
 {
     NONE = 0,
     INSERT_MODE = 1,
@@ -49,10 +49,10 @@ enum mode
     COLOR_MODE = 4
 };
 
-mode current_mode;
+Mode current_mode;
 
 // Colors
-enum color
+enum Color
 {
     BLACK = 0,
     RED = 1,
@@ -66,7 +66,7 @@ enum color
     AQUA = 9
 };
 
-Eigen::Vector4d get_color_vector(color color_code)
+Eigen::Vector4d get_color_vector(Color color_code)
 {
     switch (color_code)
     {
@@ -265,7 +265,7 @@ Eigen::Vector4d get_world_coordinates(int x_screen, int y_screen)
     return world_coords;
 }
 
-VertexAttributes get_vertex_attributes(const Eigen::Vector4d &coordinates, color color_code = BLACK)
+VertexAttributes get_vertex_attributes(const Eigen::Vector4d &coordinates, Color color_code = BLACK)
 {
     VertexAttributes vertex(coordinates(0), coordinates(1), coordinates(2));
     vertex.color = get_color_vector(color_code);
