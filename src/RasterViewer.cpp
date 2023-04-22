@@ -414,7 +414,8 @@ void update_scaling(double scale_factor)
     model_transformations[selected_triangle] = model_transformations[selected_triangle] * scale_transform;
 }
 
-void update_zoom_transformation(UniformAttributes &uniform) {
+void update_zoom_transformation(UniformAttributes &uniform)
+{
     Eigen::Matrix4d camera_transformation = get_camera_transformation(uniform.camera_position);
     Eigen::Matrix4d perspective_projection = Eigen::Matrix4d::Identity();
     Eigen::Matrix4d ortho_projection = get_orthographic_projection(top, right, zoom_factor);
@@ -647,10 +648,11 @@ int main(int argc, char *args[])
 
     viewer.key_pressed = [&](char key, bool is_pressed, int modifier, int repeat)
     {
-        if (!is_pressed) {
+        if (!is_pressed)
+        {
             return;
         }
-        
+
         switch (key)
         {
         case 'c':
@@ -685,6 +687,7 @@ int main(int argc, char *args[])
             break;
         case SDLK_PLUS:
         case SDLK_KP_PLUS:
+        case SDLK_EQUALS:       // '+' might be detected as '=' (shift + '=')
             zoom_factor /= 1.2; // Decrease zoom factor to zoom in
             update_zoom_transformation(uniform);
             break;
@@ -695,14 +698,6 @@ int main(int argc, char *args[])
             break;
         default:
             break;
-        }
-
-        bool isShiftPressed = (SDL_GetModState() & KMOD_SHIFT) != 0;
-        bool isPlusKeyPressed = isShiftPressed && key == SDLK_EQUALS;
-
-        if (isPlusKeyPressed) {
-            zoom_factor /= 1.2; // Decrease zoom factor to zoom in
-            update_zoom_transformation(uniform);
         }
 
         viewer.redraw_next = true;
