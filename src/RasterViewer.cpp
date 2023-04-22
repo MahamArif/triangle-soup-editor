@@ -22,6 +22,13 @@ Eigen::Matrix<FrameBufferAttributes, Eigen::Dynamic, Eigen::Dynamic> frameBuffer
 const double near = 0.1;
 const double far = 100;
 
+// For highlighting triangle
+int selected_index = -1;
+bool is_mouse_pressed = false;
+
+// Rotation angle in degrees
+double angle = 10.0;
+
 // For insertion preview, we need to keep separate line and triangle vertices
 std::vector<VertexAttributes> triangle_vertices;
 std::vector<VertexAttributes> line_vertices;
@@ -38,7 +45,8 @@ enum mode
     NONE = 0,
     INSERT_MODE = 1,
     TRANSLATE_MODE = 2,
-    DELETE_MODE = 3
+    DELETE_MODE = 3,
+    COLOR_MODE = 4
 };
 
 mode current_mode;
@@ -46,17 +54,46 @@ mode current_mode;
 // Colors
 enum color
 {
+    BLACK = 0,
     RED = 1,
     BLUE = 2,
-    BLACK = 3
+    GREEN = 3,
+    PURPLE = 4,
+    YELLOW = 5,
+    GREY = 6,
+    PINK = 7,
+    ORANGE = 8,
+    AQUA = 9
 };
 
-// For highlighting triangle
-int selected_index = -1;
-bool is_mouse_pressed = false;
-
-// Rotation angle in degrees
-double angle = 10.0;
+Eigen::Vector4d get_color_vector(color color_code)
+{
+    switch (color_code)
+    {
+    case BLACK:
+        return Eigen::Vector4d(0, 0, 0, 1);
+    case RED:
+        return Eigen::Vector4d(1, 0, 0, 1);
+    case BLUE:
+        return Eigen::Vector4d(0, 0, 1, 1);
+    case GREEN:
+        return Eigen::Vector4d(0, 1, 0, 1);
+    case PURPLE:
+        return Eigen::Vector4d(0.3, 0, 0.6, 1);
+    case YELLOW:
+        return Eigen::Vector4d(1, 1, 0, 1);
+    case GREY:
+        return Eigen::Vector4d(0.6, 0.6, 0.6, 1);
+    case PINK:
+        return Eigen::Vector4d(1, 0, 0.5, 1);
+    case ORANGE:
+        return Eigen::Vector4d(1, 0.5, 0, 1);
+    case AQUA:
+        return Eigen::Vector4d(0, 1, 1, 1);
+    default:
+        return Eigen::Vector4d(0, 0, 0, 1);
+    }
+}
 
 Eigen::Matrix4d get_clockwise_rotation(double angle_in_degrees)
 {
@@ -219,21 +256,6 @@ int find_nearest_object(const Eigen::Vector3d &ray_origin, const Eigen::Vector3d
     }
 
     return closest_index;
-}
-
-Eigen::Vector4d get_color_vector(color color_code)
-{
-    switch (color_code)
-    {
-    case RED:
-        return Eigen::Vector4d(1, 0, 0, 1);
-    case BLUE:
-        return Eigen::Vector4d(0, 0, 1, 1);
-    case BLACK:
-        return Eigen::Vector4d(0, 0, 0, 1);
-    default:
-        return Eigen::Vector4d(0, 0, 0, 1);
-    }
 }
 
 Eigen::Vector4d get_world_coordinates(int x_screen, int y_screen)
@@ -423,6 +445,9 @@ void change_mode(char key_pressed)
 {
     switch (key_pressed)
     {
+    case 'c':
+        current_mode = COLOR_MODE;
+        break;
     case 'i':
         current_mode = INSERT_MODE;
         break;
@@ -604,6 +629,7 @@ int main(int argc, char *args[])
     {
         switch (key)
         {
+        case 'c':
         case 'i':
         case 'o':
         case 'p':
