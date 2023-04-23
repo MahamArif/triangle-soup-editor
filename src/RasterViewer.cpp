@@ -189,8 +189,8 @@ Eigen::Matrix4d get_perspective_projection()
 Eigen::Matrix4d get_orthographic_projection()
 {
     // Specifying the bounding box coordinates for canonical cube
-    double left = (-1 + x_offset) * aspect_ratio * zoom_factor;
-    double right = (1 + x_offset) * aspect_ratio * zoom_factor;
+    double left = (-1 + x_offset) * zoom_factor;
+    double right = (1 + x_offset) * zoom_factor;
     double bottom = (-1 + y_offset) * zoom_factor;
     double top = (1 + y_offset) * zoom_factor;
 
