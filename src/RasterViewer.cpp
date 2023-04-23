@@ -477,19 +477,19 @@ void change_mode(char key_pressed)
 {
     switch (key_pressed)
     {
-    case 'c':
+    case SDLK_c:
         current_mode = COLOR_MODE;
         break;
-    case 'i':
+    case SDLK_i:
         current_mode = INSERT_MODE;
         break;
-    case 'o':
+    case SDLK_o:
         current_mode = TRANSLATE_MODE;
         break;
-    case 'p':
+    case SDLK_p:
         current_mode = DELETE_MODE;
         break;
-    case 'z':
+    case SDLK_ESCAPE:
         current_mode = NONE;
         break;
     }
@@ -588,7 +588,7 @@ int main(int argc, char *args[])
 
     // Initialize the viewer and the corresponding callbacks
     SDLViewer viewer;
-    viewer.init("Viewer Example", width, height);
+    viewer.init("Triangle Soup Editor", width, height);
 
     viewer.mouse_move = [&](int x, int y, int xrel, int yrel)
     {
@@ -655,34 +655,34 @@ int main(int argc, char *args[])
 
         switch (key)
         {
-        case 'c':
-        case 'i':
-        case 'o':
-        case 'p':
-        case 'z':
+        case SDLK_c:
+        case SDLK_i:
+        case SDLK_o:
+        case SDLK_p:
+        case SDLK_ESCAPE:
             change_mode(key);
             break;
-        case 'h':
+        case SDLK_h:
             update_rotation();
             break;
-        case 'j':
+        case SDLK_j:
             update_rotation(false);
             break;
-        case 'k':
+        case SDLK_k:
             update_scaling(1.25);
             break;
-        case 'l':
+        case SDLK_l:
             update_scaling(0.75);
             break;
-        case '1':
-        case '2':
-        case '3':
-        case '4':
-        case '5':
-        case '6':
-        case '7':
-        case '8':
-        case '9':
+        case SDLK_1:
+        case SDLK_2:
+        case SDLK_3:
+        case SDLK_4:
+        case SDLK_5:
+        case SDLK_6:
+        case SDLK_7:
+        case SDLK_8:
+        case SDLK_9:
             change_vertex_color(key);
             break;
         case SDLK_PLUS:
