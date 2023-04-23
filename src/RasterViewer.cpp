@@ -22,11 +22,13 @@ Eigen::Matrix<FrameBufferAttributes, Eigen::Dynamic, Eigen::Dynamic> frameBuffer
 const double aspect_ratio = double(frameBuffer.cols()) / double(frameBuffer.rows());
 const double near = 0.1;
 const double far = 100;
-const double top = 16;
-const double right = top;
 
 // For zoom in/zoom out
 double zoom_factor = 1.0;
+
+// To pan the view
+double x_offset = 0.0;
+double y_offset = 0.0;
 
 // For highlighting triangle
 int selected_triangle = -1;
@@ -184,13 +186,13 @@ Eigen::Matrix4d get_perspective_projection()
     return perspective_projection;
 }
 
-Eigen::Matrix4d get_orthographic_projection(double height, double width, double zoom_factor = 1.0)
+Eigen::Matrix4d get_orthographic_projection()
 {
     // Specifying the bounding box coordinates for canonical cube
-    double left = -width * zoom_factor;
-    double right = width * zoom_factor;
-    double top = height * zoom_factor;
-    double bottom = -height * zoom_factor;
+    double left = (-1 + x_offset) * aspect_ratio * zoom_factor;
+    double right = (1 + x_offset) * aspect_ratio * zoom_factor;
+    double bottom = (-1 + y_offset) * zoom_factor;
+    double top = (1 + y_offset) * zoom_factor;
 
     Eigen::Matrix4d ortho_projection;
     ortho_projection << 2 / (right - left), 0, 0, -(right + left) / (right - left),
@@ -414,11 +416,11 @@ void update_scaling(double scale_factor)
     model_transformations[selected_triangle] = model_transformations[selected_triangle] * scale_transform;
 }
 
-void update_zoom_transformation(UniformAttributes &uniform)
+void update_transformation(UniformAttributes &uniform)
 {
     Eigen::Matrix4d camera_transformation = get_camera_transformation(uniform.camera_position);
     Eigen::Matrix4d perspective_projection = Eigen::Matrix4d::Identity();
-    Eigen::Matrix4d ortho_projection = get_orthographic_projection(top, right, zoom_factor);
+    Eigen::Matrix4d ortho_projection = get_orthographic_projection();
     Eigen::Matrix4d view = get_view_transformation(aspect_ratio);
     uniform.world_transformation = view * ortho_projection * perspective_projection * camera_transformation;
 
@@ -589,7 +591,7 @@ int main(int argc, char *args[])
     // Set the transformations for camera space and orthographic projection
     uniform.camera_position = Eigen::Vector3d(0, 0, -5);
 
-    update_zoom_transformation(uniform);
+    update_transformation(uniform);
 
     // Initialize the viewer and the corresponding callbacks
     SDLViewer viewer;
@@ -694,12 +696,28 @@ int main(int argc, char *args[])
         case SDLK_KP_PLUS:
         case SDLK_EQUALS:       // '+' might be detected as '=' (shift + '=')
             zoom_factor /= 1.2; // Decrease zoom factor to zoom in
-            update_zoom_transformation(uniform);
+            update_transformation(uniform);
             break;
         case SDLK_MINUS:
         case SDLK_KP_MINUS:
             zoom_factor *= 1.2; // Increase zoom factor to zoom out
-            update_zoom_transformation(uniform);
+            update_transformation(uniform);
+            break;
+        case SDLK_w:
+            y_offset += 0.2;
+            update_transformation(uniform);
+            break;
+        case SDLK_a:
+            x_offset -= 0.2;
+            update_transformation(uniform);
+            break;
+        case SDLK_s:
+            y_offset -= 0.2;
+            update_transformation(uniform);
+            break;
+        case SDLK_d:
+            x_offset += 0.2;
+            update_transformation(uniform);
             break;
         default:
             break;
