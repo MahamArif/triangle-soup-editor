@@ -517,6 +517,11 @@ void render_triangles_with_wireframe(
         triangle.push_back(b);
         triangle.push_back(c);
 
+        // To avoid lines being hidden by triangle
+        a.position[2] += 0.0005;
+        b.position[2] += 0.0005;
+        c.position[2] += 0.0005;
+
         lines.clear();
 
         lines.push_back(a);
