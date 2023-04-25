@@ -106,6 +106,59 @@ Eigen::Vector4d get_color_vector(Color color_code)
     }
 }
 
+Eigen::Matrix4d lerp_matrices(const Eigen::Matrix4d &mat1, const Eigen::Matrix4d &mat2, double interpolation_factor, const Eigen::Vector3d &barycenter) {
+    // Convert into affine transformation
+    Eigen::Affine3d affine1 = Eigen::Transform<double, 3, Eigen::Affine>(mat1);
+    Eigen::Affine3d affine2 = Eigen::Transform<double, 3, Eigen::Affine>(mat2);
+
+    // Decompose input transformations into translation, rotation, and scaling components
+    // Translation
+    Eigen::Translation3d translation1(affine1.translation());
+    Eigen::Translation3d translation2(affine2.translation());
+
+    // Rotation
+    Eigen::Quaterniond rotation1(affine1.rotation());
+    Eigen::Quaterniond rotation2(affine2.rotation());
+
+    // Scaling
+    double sx1 = mat1.block<3, 1>(0, 0).norm();
+    double sy1 = mat1.block<3, 1>(0, 1).norm();
+    double sz1 = mat1.block<3, 1>(0, 2).norm();
+    Eigen::Vector3d scaling1 = Eigen::Vector3d(sx1, sy1, sz1);
+
+    double sx2 = mat2.block<3, 1>(0, 0).norm();
+    double sy2 = mat2.block<3, 1>(0, 1).norm();
+    double sz2 = mat2.block<3, 1>(0, 2).norm();
+    Eigen::Vector3d scaling2 = Eigen::Vector3d(sx2, sy2, sz2);
+
+    // Interpolate translations using lerp
+    Eigen::Vector3d interpolated_translation = translation1.vector() + interpolation_factor * (translation2.vector() - translation1.vector());
+
+    // Interpolate rotations using slerp
+    Eigen::Quaterniond interpolated_rotation = rotation1.slerp(interpolation_factor, rotation2);
+
+    // Interpolate scalings using lerp
+    Eigen::Vector3d interpolated_scaling = scaling1 + interpolation_factor * (scaling2 - scaling1);
+
+    // Create the transformation matrix
+    Eigen::Affine3d interpolated_transform = Eigen::Affine3d::Identity();
+
+    // Translate the object so that its barycenter is at the origin
+    interpolated_transform.translate(-barycenter);
+
+    // Apply the interpolated rotation and scaling transformations
+    interpolated_transform.rotate(interpolated_rotation);
+    interpolated_transform.scale(interpolated_scaling);
+
+    // Translate the object back to its original position
+    interpolated_transform.translate(barycenter);
+
+    // Apply the interpolated translation
+    interpolated_transform.translate(interpolated_translation);
+
+    return interpolated_transform.matrix();
+}
+
 Eigen::Matrix4d get_clockwise_rotation(double angle_in_degrees)
 {
     double angle_in_radians = 2 * M_PI * (angle_in_degrees / 360);
