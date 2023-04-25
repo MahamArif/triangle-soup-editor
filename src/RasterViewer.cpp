@@ -11,6 +11,8 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION // Do not include this line twice in your project!
 #include "stb_image_write.h"
 
+SDLViewer viewer;
+
 // Frame Size
 const int width = 1000;
 const int height = 700;
@@ -50,6 +52,23 @@ std::vector<Eigen::Matrix4d> model_transformations;
 // To change the color of vertex
 int selected_vertex = -1;
 
+// Keyframe structure
+struct Keyframe
+{
+    double time;
+    std::vector<Eigen::Matrix4d> transformations;
+};
+
+double keyframe_interval = 0.6;
+std::vector<Keyframe> keyframes;
+
+// Animation
+const int frame_rate = 5;
+bool is_animation_playing = false;
+SDL_TimerID animation_timer_id = 0;
+Uint32 animation_interval = 1000 / frame_rate;
+double animation_time = 0.0;
+
 // Modes
 enum Mode
 {
@@ -57,7 +76,8 @@ enum Mode
     INSERT_MODE = 1,
     TRANSLATE_MODE = 2,
     DELETE_MODE = 3,
-    COLOR_MODE = 4
+    COLOR_MODE = 4,
+    ANIMATION_MODE = 5
 };
 
 Mode current_mode;
@@ -106,7 +126,19 @@ Eigen::Vector4d get_color_vector(Color color_code)
     }
 }
 
-Eigen::Matrix4d lerp_matrices(const Eigen::Matrix4d &mat1, const Eigen::Matrix4d &mat2, double interpolation_factor, const Eigen::Vector3d &barycenter) {
+Uint32 update_animation_time(Uint32 interval, void * /*param*/)
+{
+    animation_time += interval / 1000.0;
+    if (animation_time > keyframes.back().time)
+    {
+        animation_time = 0.0;
+    }
+    viewer.redraw_next = true;
+    return interval;
+}
+
+Eigen::Matrix4d lerp_matrices(const Eigen::Matrix4d &mat1, const Eigen::Matrix4d &mat2, double interpolation_factor, const Eigen::Vector3d &barycenter)
+{
     // Convert into affine transformation
     Eigen::Affine3d affine1 = Eigen::Transform<double, 3, Eigen::Affine>(mat1);
     Eigen::Affine3d affine2 = Eigen::Transform<double, 3, Eigen::Affine>(mat2);
@@ -268,6 +300,21 @@ Eigen::Matrix4d get_view_transformation(double aspect_ratio)
     return view;
 }
 
+Eigen::Vector3d get_triangle_barycenter(int triangle_index)
+{
+    Eigen::Vector4d a = triangle_vertices[triangle_index * 3 + 0].position;
+    Eigen::Vector4d b = triangle_vertices[triangle_index * 3 + 1].position;
+    Eigen::Vector4d c = triangle_vertices[triangle_index * 3 + 2].position;
+
+    // Compute barycenter of selected triangle
+    double center_x = (a(0) + b(0) + c(0)) / 3.0;
+    double center_y = (a(1) + b(1) + c(1)) / 3.0;
+    double center_z = (a(2) + b(2) + c(2)) / 3.0;
+    Eigen::Vector3d center_coords = Eigen::Vector3d(center_x, center_y, center_z);
+
+    return center_coords;
+}
+
 double ray_triangle_intersection(const Eigen::Vector3d &ray_origin, const Eigen::Vector3d &ray_direction, const Eigen::Vector3d &a, const Eigen::Vector3d &b, const Eigen::Vector3d &c)
 {
     // Compute whether the ray intersects the given triangle.
@@ -427,16 +474,8 @@ void update_rotation(bool is_clockwise = true)
         return;
     }
 
-    // Selected triangle
-    Eigen::Vector4d a = triangle_vertices[selected_triangle * 3 + 0].position;
-    Eigen::Vector4d b = triangle_vertices[selected_triangle * 3 + 1].position;
-    Eigen::Vector4d c = triangle_vertices[selected_triangle * 3 + 2].position;
-
-    // Compute barycenter of selected triangle
-    double center_x = (a(0) + b(0) + c(0)) / 3.0;
-    double center_y = (a(1) + b(1) + c(1)) / 3.0;
-    double center_z = (a(2) + b(2) + c(2)) / 3.0;
-    Eigen::Vector3d center_coords = Eigen::Vector3d(center_x, center_y, center_z);
+    // Compute triangle barycenter
+    Eigen::Vector3d center_coords = get_triangle_barycenter(selected_triangle);
 
     Eigen::Matrix4d rotation_matrix = is_clockwise ? get_clockwise_rotation(angle) : get_anticlockwise_rotation(angle);
     Eigen::Matrix4d rotation = get_translation(center_coords) * rotation_matrix * get_translation(-1 * center_coords);
@@ -452,16 +491,8 @@ void update_scaling(double scale_factor)
         return;
     }
 
-    // Selected triangle
-    Eigen::Vector4d a = triangle_vertices[selected_triangle * 3 + 0].position;
-    Eigen::Vector4d b = triangle_vertices[selected_triangle * 3 + 1].position;
-    Eigen::Vector4d c = triangle_vertices[selected_triangle * 3 + 2].position;
-
-    // Compute barycenter of selected triangle
-    double center_x = (a(0) + b(0) + c(0)) / 3.0;
-    double center_y = (a(1) + b(1) + c(1)) / 3.0;
-    double center_z = (a(2) + b(2) + c(2)) / 3.0;
-    Eigen::Vector3d center_coords = Eigen::Vector3d(center_x, center_y, center_z);
+    // Compute triangle barycenter
+    Eigen::Vector3d center_coords = get_triangle_barycenter(selected_triangle);
 
     Eigen::Matrix4d scale_transform = get_translation(center_coords) * get_scaling(scale_factor) * get_translation(-1 * center_coords);
 
@@ -479,6 +510,37 @@ void update_transformation(UniformAttributes &uniform)
 
     // Computing inverse transformation
     inverse_transformation = uniform.world_transformation.inverse();
+}
+
+Eigen::Matrix4d get_model_transformation(int selected_triangle)
+{
+    if (!is_animation_playing || current_mode != ANIMATION_MODE)
+    {
+        return model_transformations[selected_triangle];
+    }
+
+    Keyframe keyframe1, keyframe2;
+    for (int i = 0; i < keyframes.size() - 1; ++i)
+    {
+        if (animation_time >= keyframes[i].time && animation_time <= keyframes[i + 1].time)
+        {
+            keyframe1 = keyframes[i];
+            keyframe2 = keyframes[i + 1];
+            break;
+        }
+    }
+
+    // Calculate the interpolation factor
+    double interpolation_factor = (animation_time - keyframe1.time) / (keyframe2.time - keyframe1.time);
+
+    // Compute triangle barycenter
+    Eigen::Vector3d center_coords = get_triangle_barycenter(selected_triangle);
+
+    return lerp_matrices(
+        keyframe1.transformations[selected_triangle],
+        keyframe2.transformations[selected_triangle],
+        interpolation_factor,
+        center_coords);
 }
 
 // Finds the closest vertex to the mouse position
@@ -544,11 +606,49 @@ void change_mode(char key_pressed)
     case SDLK_p:
         current_mode = DELETE_MODE;
         break;
+    case SDLK_q:
+        current_mode = ANIMATION_MODE;
+        break;
     case SDLK_ESCAPE:
         current_mode = NONE;
         break;
     }
     reset_previous_mode();
+}
+
+void toggle_animation(char key)
+{
+    if (keyframes.size() <= 1)
+    {
+        return;
+    }
+    change_mode(key);
+    if (is_animation_playing)
+    {
+        SDL_RemoveTimer(animation_timer_id);
+        animation_time = 0.0;
+    }
+    else
+    {
+        animation_timer_id = SDL_AddTimer(animation_interval, update_animation_time, nullptr);
+    }
+    is_animation_playing = !is_animation_playing;
+}
+
+void add_keyframe()
+{
+    Keyframe keyframe;
+    keyframe.time = keyframes.size() * keyframe_interval;
+    keyframe.transformations.insert(keyframe.transformations.end(), model_transformations.begin(), model_transformations.end());
+    keyframes.push_back(keyframe);
+}
+
+void clear_keyframes()
+{
+    for (int i = keyframes.size(); i > 1; i--)
+    {
+        keyframes.pop_back();
+    }
 }
 
 void render_triangles_with_wireframe(
@@ -593,7 +693,7 @@ void render_triangles_with_wireframe(
             lines[i].color = black_color;
         }
 
-        uniform.model_transformation = model_transformations[i];
+        uniform.model_transformation = get_model_transformation(i);
         uniform.is_object_highlighted = selected_triangle == i;
         rasterize_triangles(program, uniform, triangle, frameBuffer);
 
@@ -647,7 +747,6 @@ int main(int argc, char *args[])
     update_transformation(uniform);
 
     // Initialize the viewer and the corresponding callbacks
-    SDLViewer viewer;
     viewer.init("Triangle Soup Editor", width, height);
 
     viewer.mouse_move = [&](int x, int y, int xrel, int yrel)
@@ -771,6 +870,15 @@ int main(int argc, char *args[])
         case SDLK_d:
             x_offset += 0.2;
             update_transformation(uniform);
+            break;
+        case SDLK_q:
+            toggle_animation(key);
+            break;
+        case SDLK_r:
+            add_keyframe();
+            break;
+        case SDLK_z:
+            clear_keyframes();
             break;
         default:
             break;
