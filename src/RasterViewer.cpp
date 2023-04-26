@@ -305,48 +305,34 @@ Eigen::Vector3d get_triangle_barycenter(int triangle_index)
     return barycenter.head<3>();
 }
 
-Eigen::Matrix4d get_model_transformation(int selected_triangle)
+Eigen::Matrix4d get_lerp_transformation(int triangle_index)
 {
-    Eigen::Vector3d translation;
-    double rotation_angle;
-    double scale_factor;
-
     // Compute triangle barycenter
-    Eigen::Vector3d barycenter = get_triangle_barycenter(selected_triangle);
+    Eigen::Vector3d barycenter = get_triangle_barycenter(triangle_index);
 
-    if (current_mode == ANIMATION_MODE && is_animation_playing)
+    // Find two closest keyframes based on the current animation time
+    Keyframe keyframe1, keyframe2;
+    for (int i = 0; i < keyframes.size() - 1; ++i)
     {
-        // Find two closest keyframes based on the current animation time
-        Keyframe keyframe1, keyframe2;
-        for (int i = 0; i < keyframes.size() - 1; ++i)
+        if (animation_time >= keyframes[i].time && animation_time <= keyframes[i + 1].time)
         {
-            if (animation_time >= keyframes[i].time && animation_time <= keyframes[i + 1].time)
-            {
-                keyframe1 = keyframes[i];
-                keyframe2 = keyframes[i + 1];
-                break;
-            }
+            keyframe1 = keyframes[i];
+            keyframe2 = keyframes[i + 1];
+            break;
         }
-
-        // Calculate the interpolation factor
-        double interpolation_factor = (animation_time - keyframe1.time) / (keyframe2.time - keyframe1.time);
-
-        // Compute the interpolated translation
-        translation = lerp_translations(keyframe1.translations[selected_triangle], keyframe2.translations[selected_triangle], interpolation_factor);
-
-        // Calculate the interpolated rotation angle
-        rotation_angle = lerp_rotation_angles(keyframe1.rotations[selected_triangle], keyframe2.rotations[selected_triangle], interpolation_factor);
-
-        // Calculate the interpolated scale factor
-        scale_factor = lerp_scale_factors(keyframe1.scales[selected_triangle], keyframe2.scales[selected_triangle], interpolation_factor);
     }
-    else
-    {
-        // Calulate the transformation based on current orientation
-        translation = model_translations[selected_triangle];
-        rotation_angle = normalize_angle(model_rotations[selected_triangle]);
-        scale_factor = model_scales[selected_triangle];
-    }
+
+    // Calculate the interpolation factor
+    double interpolation_factor = (animation_time - keyframe1.time) / (keyframe2.time - keyframe1.time);
+
+    // Compute the interpolated translation
+    Eigen::Vector3d translation = lerp_translations(keyframe1.translations[triangle_index], keyframe2.translations[triangle_index], interpolation_factor);
+
+    // Calculate the interpolated rotation angle
+    double rotation_angle = lerp_rotation_angles(keyframe1.rotations[triangle_index], keyframe2.rotations[triangle_index], interpolation_factor);
+
+    // Calculate the interpolated scale factor
+    double scale_factor = lerp_scale_factors(keyframe1.scales[triangle_index], keyframe2.scales[triangle_index], interpolation_factor);
 
     // Convert the normalized rotation angle to a rotation matrix
     Eigen::Matrix4d rotation_matrix = Eigen::Matrix4d::Identity();
@@ -354,6 +340,31 @@ Eigen::Matrix4d get_model_transformation(int selected_triangle)
 
     Eigen::Matrix4d transformation = get_translation(translation) * get_translation(barycenter) * rotation_matrix * get_scaling(scale_factor) * get_translation(-barycenter);
     return transformation;
+}
+
+Eigen::Matrix4d get_model_transformation(int triangle_index)
+{
+    if (current_mode == ANIMATION_MODE && is_animation_playing)
+    {
+        return get_lerp_transformation(triangle_index);
+    }
+    else
+    {
+        // Compute triangle barycenter
+        Eigen::Vector3d barycenter = get_triangle_barycenter(triangle_index);
+
+        // Calulate the transformation based on current orientation
+        Eigen::Vector3d translation = model_translations[triangle_index];
+        double rotation_angle = normalize_angle(model_rotations[triangle_index]);
+        double scale_factor = model_scales[triangle_index];
+
+        // Convert the normalized rotation angle to a rotation matrix
+        Eigen::Matrix4d rotation_matrix = Eigen::Matrix4d::Identity();
+        rotation_matrix.block<3, 3>(0, 0) = Eigen::AngleAxisd(rotation_angle * M_PI / 180.0, Eigen::Vector3d::UnitZ()).toRotationMatrix();
+
+        Eigen::Matrix4d transformation = get_translation(translation) * get_translation(barycenter) * rotation_matrix * get_scaling(scale_factor) * get_translation(-barycenter);
+        return transformation;
+    }
 }
 
 double ray_triangle_intersection(const Eigen::Vector3d &ray_origin, const Eigen::Vector3d &ray_direction, const Eigen::Vector3d &a, const Eigen::Vector3d &b, const Eigen::Vector3d &c)
