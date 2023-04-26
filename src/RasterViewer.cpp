@@ -81,7 +81,8 @@ enum Mode
     TRANSLATE_MODE = 2,
     DELETE_MODE = 3,
     COLOR_MODE = 4,
-    ANIMATION_MODE = 5
+    LINEAR_ANIMATION_MODE = 5,
+    BEZIER_ANIMATION_MODE = 6
 };
 
 Mode current_mode;
@@ -344,7 +345,7 @@ Eigen::Matrix4d get_lerp_transformation(int triangle_index)
 
 Eigen::Matrix4d get_model_transformation(int triangle_index)
 {
-    if (current_mode == ANIMATION_MODE && is_animation_playing)
+    if (current_mode == LINEAR_ANIMATION_MODE && is_animation_playing)
     {
         return get_lerp_transformation(triangle_index);
     }
@@ -639,7 +640,10 @@ void change_mode(char key_pressed)
         current_mode = DELETE_MODE;
         break;
     case SDLK_q:
-        current_mode = ANIMATION_MODE;
+        current_mode = LINEAR_ANIMATION_MODE;
+        break;
+    case SDLK_b:
+        current_mode = BEZIER_ANIMATION_MODE;
         break;
     case SDLK_ESCAPE:
         current_mode = NONE;
@@ -905,6 +909,7 @@ int main(int argc, char *args[])
             x_offset += 0.2;
             update_transformation(uniform);
             break;
+        case SDLK_b:
         case SDLK_q:
             toggle_animation(key);
             break;
