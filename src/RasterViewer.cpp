@@ -48,6 +48,9 @@ Eigen::Matrix4d inverse_transformation;
 
 // Model transformations (translation, rotation, and scaling) for each triangle
 std::vector<Eigen::Matrix4d> model_transformations;
+std::vector<Eigen::Vector3d> model_translations;
+std::vector<double> model_rotations;
+std::vector<double> model_scales;
 
 // To change the color of vertex
 int selected_vertex = -1;
@@ -56,14 +59,16 @@ int selected_vertex = -1;
 struct Keyframe
 {
     double time;
-    std::vector<Eigen::Matrix4d> transformations;
+    std::vector<Eigen::Vector3d> translations;
+    std::vector<double> rotations;
+    std::vector<double> scales;
 };
 
 double keyframe_interval = 0.6;
 std::vector<Keyframe> keyframes;
 
 // Animation
-const int frame_rate = 5;
+const int frame_rate = 30;
 bool is_animation_playing = false;
 SDL_TimerID animation_timer_id = 0;
 Uint32 animation_interval = 1000 / frame_rate;
@@ -124,6 +129,37 @@ Eigen::Vector4d get_color_vector(Color color_code)
     default:
         return Eigen::Vector4d(0, 0, 0, 1);
     }
+}
+
+// Normalize an angle to the range [-180, 180)
+double normalize_angle(double angle)
+{
+    while (angle < -180)
+    {
+        angle += 360;
+    }
+    while (angle >= 180)
+    {
+        angle -= 360;
+    }
+    return angle;
+}
+
+// Interpolate two angles (in degrees) using the interpolation factor t
+double interpolate_angles(double angle1, double angle2, double interpolation_factor)
+{
+    // Normalize angles to the range [-180, 180)
+    angle1 = normalize_angle(angle1);
+    angle2 = normalize_angle(angle2);
+
+    // Find the shortest path between angles
+    double delta_angle = normalize_angle(angle2 - angle1);
+
+    // Interpolate the angles
+    double interpolated_angle = angle1 + interpolation_factor * delta_angle;
+
+    // Normalize the interpolated angle
+    return normalize_angle(interpolated_angle);
 }
 
 Uint32 update_animation_time(Uint32 interval, void * /*param*/)
@@ -307,12 +343,8 @@ Eigen::Vector3d get_triangle_barycenter(int triangle_index)
     Eigen::Vector4d c = triangle_vertices[triangle_index * 3 + 2].position;
 
     // Compute barycenter of selected triangle
-    double center_x = (a(0) + b(0) + c(0)) / 3.0;
-    double center_y = (a(1) + b(1) + c(1)) / 3.0;
-    double center_z = (a(2) + b(2) + c(2)) / 3.0;
-    Eigen::Vector3d center_coords = Eigen::Vector3d(center_x, center_y, center_z);
-
-    return center_coords;
+    Eigen::Vector4d barycenter = (a + b + c) / 3.0;
+    return barycenter.head<3>();
 }
 
 double ray_triangle_intersection(const Eigen::Vector3d &ray_origin, const Eigen::Vector3d &ray_direction, const Eigen::Vector3d &a, const Eigen::Vector3d &b, const Eigen::Vector3d &c)
@@ -392,6 +424,11 @@ void insert_triangle(const Eigen::Vector4d &a, const Eigen::Vector4d &b, const E
     triangle_vertices.push_back(get_vertex_attributes(c, RED));
 
     model_transformations.push_back(Eigen::Matrix4d::Identity());
+
+    // For keyframing
+    model_translations.push_back(Eigen::Vector3d::Zero());
+    model_rotations.push_back(0.0);
+    model_scales.push_back(1.0);
 }
 
 void insert_preview(const Eigen::Vector4d &world_coordinates)
@@ -465,6 +502,7 @@ void update_translation(int xrel, int yrel)
     Eigen::Vector4d canonical_coords = Eigen::Vector4d((double(xrel) / double(width) * 2), (-double(yrel) / double(height) * 2), 0, 0);
     Eigen::Vector4d world_coords = inverse_transformation * canonical_coords;
     model_transformations[selected_triangle] = get_translation(world_coords.head<3>()) * model_transformations[selected_triangle];
+    model_translations[selected_triangle] += world_coords.head<3>();
 }
 
 void update_rotation(bool is_clockwise = true)
@@ -479,6 +517,8 @@ void update_rotation(bool is_clockwise = true)
 
     Eigen::Matrix4d rotation_matrix = is_clockwise ? get_clockwise_rotation(angle) : get_anticlockwise_rotation(angle);
     Eigen::Matrix4d rotation = get_translation(center_coords) * rotation_matrix * get_translation(-1 * center_coords);
+
+    model_rotations[selected_triangle] = is_clockwise ? model_rotations[selected_triangle] - angle : model_rotations[selected_triangle] + angle;
 
     // Update rotation
     model_transformations[selected_triangle] = model_transformations[selected_triangle] * rotation;
@@ -498,6 +538,8 @@ void update_scaling(double scale_factor)
 
     // Update rotation
     model_transformations[selected_triangle] = model_transformations[selected_triangle] * scale_transform;
+
+    model_scales[selected_triangle] *= scale_factor;
 }
 
 void update_transformation(UniformAttributes &uniform)
@@ -534,13 +576,23 @@ Eigen::Matrix4d get_model_transformation(int selected_triangle)
     double interpolation_factor = (animation_time - keyframe1.time) / (keyframe2.time - keyframe1.time);
 
     // Compute triangle barycenter
-    Eigen::Vector3d center_coords = get_triangle_barycenter(selected_triangle);
+    Eigen::Vector3d barycenter = get_triangle_barycenter(selected_triangle);
 
-    return lerp_matrices(
-        keyframe1.transformations[selected_triangle],
-        keyframe2.transformations[selected_triangle],
-        interpolation_factor,
-        center_coords);
+    double interpolated_angle = interpolate_angles(keyframe1.rotations[selected_triangle], keyframe2.rotations[selected_triangle], interpolation_factor);
+
+    // Convert the interpolated angle to a rotation matrix
+    Eigen::Matrix3d rotationMatrix = Eigen::AngleAxisd(interpolated_angle * M_PI / 180.0, Eigen::Vector3d::UnitZ()).toRotationMatrix();
+
+    Eigen::Matrix4d final_rotation_matrix = Eigen::Matrix4d::Identity();
+    final_rotation_matrix.block<3, 3>(0, 0) = rotationMatrix;
+
+    // Interpolate translations using lerp
+    Eigen::Vector3d interpolated_translation = keyframe1.translations[selected_triangle] + interpolation_factor * (keyframe2.translations[selected_triangle] - keyframe1.translations[selected_triangle]);
+
+    double interpolated_scale = keyframe1.scales[selected_triangle] + interpolation_factor * (keyframe2.scales[selected_triangle] - keyframe1.scales[selected_triangle]);
+
+    Eigen::Matrix4d final_matrix = get_translation(interpolated_translation) * get_translation(barycenter) * final_rotation_matrix * get_scaling(interpolated_scale) * get_translation(-barycenter);
+    return final_matrix;
 }
 
 // Finds the closest vertex to the mouse position
@@ -639,7 +691,9 @@ void add_keyframe()
 {
     Keyframe keyframe;
     keyframe.time = keyframes.size() * keyframe_interval;
-    keyframe.transformations.insert(keyframe.transformations.end(), model_transformations.begin(), model_transformations.end());
+    keyframe.translations.insert(keyframe.translations.end(), model_translations.begin(), model_translations.end());
+    keyframe.rotations.insert(keyframe.rotations.end(), model_rotations.begin(), model_rotations.end());
+    keyframe.scales.insert(keyframe.scales.end(), model_scales.begin(), model_scales.end());
     keyframes.push_back(keyframe);
 }
 
