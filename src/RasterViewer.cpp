@@ -47,7 +47,6 @@ std::vector<VertexAttributes> line_vertices;
 Eigen::Matrix4d inverse_transformation;
 
 // Model transformations (translation, rotation, and scaling) for each triangle
-std::vector<Eigen::Matrix4d> model_transformations;
 std::vector<Eigen::Vector3d> model_translations;
 std::vector<double> model_rotations;
 std::vector<double> model_scales;
@@ -140,6 +139,50 @@ Uint32 update_animation_time(Uint32 interval, void * /*param*/)
     }
     viewer.redraw_next = true;
     return interval;
+}
+
+// Normalize an angle to the range [-180, 180)
+double normalize_angle(const double angle)
+{
+    double normalized_angle = angle;
+    while (normalized_angle < -180)
+    {
+        normalized_angle += 360;
+    }
+    while (normalized_angle >= 180)
+    {
+        normalized_angle -= 360;
+    }
+    return normalized_angle;
+}
+
+// Interpolate two angles (in degrees) using the interpolation factor
+double lerp_rotation_angles(const double angle1, const double angle2, const double interpolation_factor)
+{
+    // Normalize angles to the range [-180, 180)
+    double normalized_angle1 = normalize_angle(angle1);
+    double normalized_angle2 = normalize_angle(angle2);
+
+    // Find the shortest path between angles
+    double delta_angle = normalize_angle(normalized_angle2 - normalized_angle1);
+
+    // Interpolate the angles
+    double interpolated_angle = normalized_angle1 + interpolation_factor * delta_angle;
+
+    // Normalize the interpolated angle
+    return normalize_angle(interpolated_angle);
+}
+
+Eigen::Vector3d lerp_translations(const Eigen::Vector3d &translation1, const Eigen::Vector3d &translation2, const double interpolation_factor)
+{
+    Eigen::Vector3d interpolated_translation = translation1 + interpolation_factor * (translation2 - translation1);
+    return interpolated_translation;
+}
+
+double lerp_scale_factors(const double scale1, const double scale2, const double interpolation_factor)
+{
+    double interpolated_scale = scale1 + interpolation_factor * (scale2 - scale1);
+    return interpolated_scale;
 }
 
 Eigen::Matrix4d get_clockwise_rotation(double angle_in_degrees)
@@ -262,257 +305,6 @@ Eigen::Vector3d get_triangle_barycenter(int triangle_index)
     return barycenter.head<3>();
 }
 
-double ray_triangle_intersection(const Eigen::Vector3d &ray_origin, const Eigen::Vector3d &ray_direction, const Eigen::Vector3d &a, const Eigen::Vector3d &b, const Eigen::Vector3d &c)
-{
-    // Compute whether the ray intersects the given triangle.
-    Eigen::Matrix3d M;
-    M.col(0) << (a - b);
-    M.col(1) << (a - c);
-    M.col(2) << ray_direction;
-    Eigen::Vector3d z = a - ray_origin;
-
-    Eigen::Vector3d x = M.colPivHouseholderQr().solve(z);
-
-    // A solution exists if t > 0, 0 <= u,v & u + v <= 1
-    bool is_ray_intersect = x(0) >= 0 && x(1) >= 0 && (x(0) + x(1)) <= 1 && x(2) > 0;
-
-    if (is_ray_intersect)
-    {
-        return x(2);
-    }
-
-    return -1;
-}
-
-// Finds the closest intersecting object returns its index
-int find_nearest_object(const Eigen::Vector3d &ray_origin, const Eigen::Vector3d &ray_direction)
-{
-    int closest_index = -1;
-    double closest_t = std::numeric_limits<double>::max(); // closest t is "+ infinity"
-
-    for (int i = 0; i < triangle_vertices.size() / 3; i++)
-    {
-        VertexAttributes a = triangle_vertices[i * 3 + 0];
-        VertexAttributes b = triangle_vertices[i * 3 + 1];
-        VertexAttributes c = triangle_vertices[i * 3 + 2];
-
-        Eigen::Vector4d vertex_a = model_transformations[i] * a.position;
-        Eigen::Vector4d vertex_b = model_transformations[i] * b.position;
-        Eigen::Vector4d vertex_c = model_transformations[i] * c.position;
-
-        const double t = ray_triangle_intersection(
-            ray_origin,
-            ray_direction,
-            vertex_a.head<3>(),
-            vertex_b.head<3>(),
-            vertex_c.head<3>());
-
-        // We have intersection and the point is before our current closest t
-        if (t >= 0 && t < closest_t)
-        {
-            closest_index = i;
-            closest_t = t;
-        }
-    }
-
-    return closest_index;
-}
-
-// Normalize an angle to the range [-180, 180)
-double normalize_angle(const double angle)
-{
-    double normalized_angle = angle;
-    while (normalized_angle < -180)
-    {
-        normalized_angle += 360;
-    }
-    while (normalized_angle >= 180)
-    {
-        normalized_angle -= 360;
-    }
-    return normalized_angle;
-}
-
-// Interpolate two angles (in degrees) using the interpolation factor
-double lerp_rotation_angles(const double angle1, const double angle2, const double interpolation_factor)
-{
-    // Normalize angles to the range [-180, 180)
-    double normalized_angle1 = normalize_angle(angle1);
-    double normalized_angle2 = normalize_angle(angle2);
-
-    // Find the shortest path between angles
-    double delta_angle = normalize_angle(normalized_angle2 - normalized_angle1);
-
-    // Interpolate the angles
-    double interpolated_angle = normalized_angle1 + interpolation_factor * delta_angle;
-
-    // Normalize the interpolated angle
-    return normalize_angle(interpolated_angle);
-}
-
-Eigen::Vector3d lerp_translations(const Eigen::Vector3d &translation1, const Eigen::Vector3d &translation2, const double interpolation_factor)
-{
-    Eigen::Vector3d interpolated_translation = translation1 + interpolation_factor * (translation2 - translation1);
-    return interpolated_translation;
-}
-
-double lerp_scale_factors(const double scale1, const double scale2, const double interpolation_factor)
-{
-    double interpolated_scale = scale1 + interpolation_factor * (scale2 - scale1);
-    return interpolated_scale;
-}
-
-Eigen::Vector4d get_world_coordinates(int x_screen, int y_screen)
-{
-    Eigen::Vector4d canonical_coords = Eigen::Vector4d((double(x_screen) / double(width) * 2) - 1, (double(height - 1 - y_screen) / double(height) * 2) - 1, 0, 1);
-    Eigen::Vector4d world_coords = inverse_transformation * canonical_coords;
-    return world_coords;
-}
-
-VertexAttributes get_vertex_attributes(const Eigen::Vector4d &coordinates, Color color_code = BLACK)
-{
-    VertexAttributes vertex(coordinates(0), coordinates(1), coordinates(2));
-    vertex.color = get_color_vector(color_code);
-    return vertex;
-}
-
-void insert_triangle(const Eigen::Vector4d &a, const Eigen::Vector4d &b, const Eigen::Vector4d &c)
-{
-    triangle_vertices.push_back(get_vertex_attributes(a, RED));
-    triangle_vertices.push_back(get_vertex_attributes(b, RED));
-    triangle_vertices.push_back(get_vertex_attributes(c, RED));
-
-    model_transformations.push_back(Eigen::Matrix4d::Identity());
-
-    // For keyframing
-    model_translations.push_back(Eigen::Vector3d::Zero());
-    model_rotations.push_back(0.0);
-    model_scales.push_back(1.0);
-}
-
-void insert_preview(const Eigen::Vector4d &world_coordinates)
-{
-    int num_line_vertices = line_vertices.size();
-
-    // Add first vertex
-    if (num_line_vertices == 0)
-    {
-        line_vertices.push_back(get_vertex_attributes(world_coordinates));
-        line_vertices.push_back(get_vertex_attributes(world_coordinates));
-    }
-    // Add second vertex
-    else if (num_line_vertices == 2)
-    {
-        line_vertices.back().position = world_coordinates;
-        line_vertices.push_back(get_vertex_attributes(world_coordinates));
-        line_vertices.push_back(get_vertex_attributes(world_coordinates));
-        line_vertices.push_back(get_vertex_attributes(world_coordinates));
-        line_vertices.push_back(line_vertices[0]);
-    }
-    else
-    {
-        // Add new triangle
-        insert_triangle(line_vertices[0].position, line_vertices[1].position, world_coordinates);
-        line_vertices.clear();
-    }
-}
-
-void select_triangle(const Eigen::Vector4d &world_coordinates, const Eigen::Vector3d &camera_position)
-{
-    Eigen::Vector3d ray_origin = camera_position;
-    Eigen::Vector3d ray_direction = (world_coordinates.head<3>() - ray_origin).normalized();
-
-    // Select triangle
-    selected_triangle = find_nearest_object(ray_origin, ray_direction);
-}
-
-void delete_triangle(const Eigen::Vector4d &world_coordinates, const Eigen::Vector3d &camera_position)
-{
-    Eigen::Vector3d ray_origin = camera_position;
-    Eigen::Vector3d ray_direction = (world_coordinates.head<3>() - camera_position).normalized();
-
-    const int nearest_index = find_nearest_object(ray_origin, ray_direction);
-    if (nearest_index > -1)
-    {
-        int index_to_remove = nearest_index * 3;
-        triangle_vertices.erase(triangle_vertices.begin() + index_to_remove, triangle_vertices.begin() + index_to_remove + 3);
-        model_transformations.erase(model_transformations.begin() + nearest_index);
-    }
-}
-
-void update_preview(int x_screen, int y_screen)
-{
-    Eigen::Vector4d world_coords = get_world_coordinates(x_screen, y_screen);
-
-    int num_vertices = line_vertices.size();
-    if (num_vertices <= 2)
-    {
-        line_vertices.back().position = world_coords;
-    }
-    else
-    {
-        line_vertices[num_vertices - 2].position = world_coords;
-        line_vertices[num_vertices - 3].position = world_coords;
-    }
-}
-
-void update_translation(int xrel, int yrel)
-{
-    Eigen::Vector4d canonical_coords = Eigen::Vector4d((double(xrel) / double(width) * 2), (-double(yrel) / double(height) * 2), 0, 0);
-    Eigen::Vector4d world_coords = inverse_transformation * canonical_coords;
-    model_transformations[selected_triangle] = get_translation(world_coords.head<3>()) * model_transformations[selected_triangle];
-    model_translations[selected_triangle] += world_coords.head<3>();
-}
-
-void update_rotation(bool is_clockwise = true)
-{
-    if (selected_triangle == -1)
-    {
-        return;
-    }
-
-    // Compute triangle barycenter
-    Eigen::Vector3d center_coords = get_triangle_barycenter(selected_triangle);
-
-    Eigen::Matrix4d rotation_matrix = is_clockwise ? get_clockwise_rotation(angle) : get_anticlockwise_rotation(angle);
-    Eigen::Matrix4d rotation = get_translation(center_coords) * rotation_matrix * get_translation(-1 * center_coords);
-
-    model_rotations[selected_triangle] = is_clockwise ? model_rotations[selected_triangle] - angle : model_rotations[selected_triangle] + angle;
-
-    // Update rotation
-    model_transformations[selected_triangle] = model_transformations[selected_triangle] * rotation;
-}
-
-void update_scaling(double scale_factor)
-{
-    if (selected_triangle == -1)
-    {
-        return;
-    }
-
-    // Compute triangle barycenter
-    Eigen::Vector3d center_coords = get_triangle_barycenter(selected_triangle);
-
-    Eigen::Matrix4d scale_transform = get_translation(center_coords) * get_scaling(scale_factor) * get_translation(-1 * center_coords);
-
-    // Update rotation
-    model_transformations[selected_triangle] = model_transformations[selected_triangle] * scale_transform;
-
-    model_scales[selected_triangle] *= scale_factor;
-}
-
-void update_transformation(UniformAttributes &uniform)
-{
-    Eigen::Matrix4d camera_transformation = get_camera_transformation(uniform.camera_position);
-    Eigen::Matrix4d perspective_projection = Eigen::Matrix4d::Identity();
-    Eigen::Matrix4d ortho_projection = get_orthographic_projection();
-    Eigen::Matrix4d view = get_view_transformation(aspect_ratio);
-    uniform.world_transformation = view * ortho_projection * perspective_projection * camera_transformation;
-
-    // Computing inverse transformation
-    inverse_transformation = uniform.world_transformation.inverse();
-}
-
 Eigen::Matrix4d get_model_transformation(int selected_triangle)
 {
     Eigen::Vector3d translation;
@@ -564,6 +356,214 @@ Eigen::Matrix4d get_model_transformation(int selected_triangle)
     return transformation;
 }
 
+double ray_triangle_intersection(const Eigen::Vector3d &ray_origin, const Eigen::Vector3d &ray_direction, const Eigen::Vector3d &a, const Eigen::Vector3d &b, const Eigen::Vector3d &c)
+{
+    // Compute whether the ray intersects the given triangle.
+    Eigen::Matrix3d M;
+    M.col(0) << (a - b);
+    M.col(1) << (a - c);
+    M.col(2) << ray_direction;
+    Eigen::Vector3d z = a - ray_origin;
+
+    Eigen::Vector3d x = M.colPivHouseholderQr().solve(z);
+
+    // A solution exists if t > 0, 0 <= u,v & u + v <= 1
+    bool is_ray_intersect = x(0) >= 0 && x(1) >= 0 && (x(0) + x(1)) <= 1 && x(2) > 0;
+
+    if (is_ray_intersect)
+    {
+        return x(2);
+    }
+
+    return -1;
+}
+
+// Finds the closest intersecting object returns its index
+int find_nearest_object(const Eigen::Vector3d &ray_origin, const Eigen::Vector3d &ray_direction)
+{
+    int closest_index = -1;
+    double closest_t = std::numeric_limits<double>::max(); // closest t is "+ infinity"
+
+    for (int i = 0; i < triangle_vertices.size() / 3; i++)
+    {
+        VertexAttributes a = triangle_vertices[i * 3 + 0];
+        VertexAttributes b = triangle_vertices[i * 3 + 1];
+        VertexAttributes c = triangle_vertices[i * 3 + 2];
+
+        Eigen::Matrix4d model_transformation = get_model_transformation(i);
+
+        Eigen::Vector4d vertex_a = model_transformation * a.position;
+        Eigen::Vector4d vertex_b = model_transformation * b.position;
+        Eigen::Vector4d vertex_c = model_transformation * c.position;
+
+        const double t = ray_triangle_intersection(
+            ray_origin,
+            ray_direction,
+            vertex_a.head<3>(),
+            vertex_b.head<3>(),
+            vertex_c.head<3>());
+
+        // We have intersection and the point is before our current closest t
+        if (t >= 0 && t < closest_t)
+        {
+            closest_index = i;
+            closest_t = t;
+        }
+    }
+
+    return closest_index;
+}
+
+Eigen::Vector4d get_world_coordinates(int x_screen, int y_screen)
+{
+    Eigen::Vector4d canonical_coords = Eigen::Vector4d((double(x_screen) / double(width) * 2) - 1, (double(height - 1 - y_screen) / double(height) * 2) - 1, 0, 1);
+    Eigen::Vector4d world_coords = inverse_transformation * canonical_coords;
+    return world_coords;
+}
+
+VertexAttributes get_vertex_attributes(const Eigen::Vector4d &coordinates, Color color_code = BLACK)
+{
+    VertexAttributes vertex(coordinates(0), coordinates(1), coordinates(2));
+    vertex.color = get_color_vector(color_code);
+    return vertex;
+}
+
+void insert_triangle(const Eigen::Vector4d &a, const Eigen::Vector4d &b, const Eigen::Vector4d &c)
+{
+    triangle_vertices.push_back(get_vertex_attributes(a, RED));
+    triangle_vertices.push_back(get_vertex_attributes(b, RED));
+    triangle_vertices.push_back(get_vertex_attributes(c, RED));
+
+    // For triangle transformations
+    model_translations.push_back(Eigen::Vector3d::Zero());
+    model_rotations.push_back(0.0);
+    model_scales.push_back(1.0);
+}
+
+void insert_preview(const Eigen::Vector4d &world_coordinates)
+{
+    int num_line_vertices = line_vertices.size();
+
+    // Add first vertex
+    if (num_line_vertices == 0)
+    {
+        line_vertices.push_back(get_vertex_attributes(world_coordinates));
+        line_vertices.push_back(get_vertex_attributes(world_coordinates));
+    }
+    // Add second vertex
+    else if (num_line_vertices == 2)
+    {
+        line_vertices.back().position = world_coordinates;
+        line_vertices.push_back(get_vertex_attributes(world_coordinates));
+        line_vertices.push_back(get_vertex_attributes(world_coordinates));
+        line_vertices.push_back(get_vertex_attributes(world_coordinates));
+        line_vertices.push_back(line_vertices[0]);
+    }
+    else
+    {
+        // Add new triangle
+        insert_triangle(line_vertices[0].position, line_vertices[1].position, world_coordinates);
+        line_vertices.clear();
+    }
+}
+
+void select_triangle(const Eigen::Vector4d &world_coordinates, const Eigen::Vector3d &camera_position)
+{
+    Eigen::Vector3d ray_origin = camera_position;
+    Eigen::Vector3d ray_direction = (world_coordinates.head<3>() - ray_origin).normalized();
+
+    // Select triangle
+    selected_triangle = find_nearest_object(ray_origin, ray_direction);
+}
+
+void delete_triangle(const Eigen::Vector4d &world_coordinates, const Eigen::Vector3d &camera_position)
+{
+    Eigen::Vector3d ray_origin = camera_position;
+    Eigen::Vector3d ray_direction = (world_coordinates.head<3>() - camera_position).normalized();
+
+    const int nearest_index = find_nearest_object(ray_origin, ray_direction);
+    if (nearest_index > -1)
+    {
+        int index_to_remove = nearest_index * 3;
+
+        // Delete all transformations for the removed triangle
+        model_translations.erase(model_translations.begin() + nearest_index);
+        model_rotations.erase(model_rotations.begin() + nearest_index);
+        model_scales.erase(model_scales.begin() + nearest_index);
+
+        // Delete from keyframes
+        for (Keyframe keyframe : keyframes)
+        {
+            if (keyframe.translations.size() == triangle_vertices.size())
+            {
+                keyframe.translations.erase(keyframe.translations.begin() + nearest_index);
+                keyframe.rotations.erase(keyframe.rotations.begin() + nearest_index);
+                keyframe.scales.erase(keyframe.scales.begin() + nearest_index);
+            }
+        }
+
+        // Remove triangle
+        triangle_vertices.erase(triangle_vertices.begin() + index_to_remove, triangle_vertices.begin() + index_to_remove + 3);
+    }
+}
+
+void update_preview(int x_screen, int y_screen)
+{
+    Eigen::Vector4d world_coords = get_world_coordinates(x_screen, y_screen);
+
+    int num_vertices = line_vertices.size();
+    if (num_vertices <= 2)
+    {
+        line_vertices.back().position = world_coords;
+    }
+    else
+    {
+        line_vertices[num_vertices - 2].position = world_coords;
+        line_vertices[num_vertices - 3].position = world_coords;
+    }
+}
+
+void update_translation(int xrel, int yrel)
+{
+    Eigen::Vector4d canonical_coords = Eigen::Vector4d((double(xrel) / double(width) * 2), (-double(yrel) / double(height) * 2), 0, 0);
+    Eigen::Vector4d world_coords = inverse_transformation * canonical_coords;
+    model_translations[selected_triangle] += world_coords.head<3>();
+}
+
+void update_rotation(bool is_clockwise = true)
+{
+    if (selected_triangle == -1)
+    {
+        return;
+    }
+
+    // Update rotation
+    model_rotations[selected_triangle] = is_clockwise ? model_rotations[selected_triangle] - angle : model_rotations[selected_triangle] + angle;
+}
+
+void update_scaling(double scale_factor)
+{
+    if (selected_triangle == -1)
+    {
+        return;
+    }
+
+    // Update scale
+    model_scales[selected_triangle] *= scale_factor;
+}
+
+void update_transformation(UniformAttributes &uniform)
+{
+    Eigen::Matrix4d camera_transformation = get_camera_transformation(uniform.camera_position);
+    Eigen::Matrix4d perspective_projection = Eigen::Matrix4d::Identity();
+    Eigen::Matrix4d ortho_projection = get_orthographic_projection();
+    Eigen::Matrix4d view = get_view_transformation(aspect_ratio);
+    uniform.world_transformation = view * ortho_projection * perspective_projection * camera_transformation;
+
+    // Computing inverse transformation
+    inverse_transformation = uniform.world_transformation.inverse();
+}
+
 // Finds the closest vertex to the mouse position
 int find_closest_vertex(const Eigen::Vector4d &mouse_position)
 {
@@ -572,7 +572,7 @@ int find_closest_vertex(const Eigen::Vector4d &mouse_position)
 
     for (int i = 0; i < triangle_vertices.size(); i++)
     {
-        Eigen::Vector4d vertex = model_transformations[i / 3] * triangle_vertices[i].position;
+        Eigen::Vector4d vertex = get_model_transformation(i / 3) * triangle_vertices[i].position;
         const double distance = (vertex - mouse_position).norm();
 
         if (distance < closest_distance)
