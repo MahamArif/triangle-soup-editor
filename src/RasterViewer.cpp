@@ -131,37 +131,6 @@ Eigen::Vector4d get_color_vector(Color color_code)
     }
 }
 
-// Normalize an angle to the range [-180, 180)
-double normalize_angle(double angle)
-{
-    while (angle < -180)
-    {
-        angle += 360;
-    }
-    while (angle >= 180)
-    {
-        angle -= 360;
-    }
-    return angle;
-}
-
-// Interpolate two angles (in degrees) using the interpolation factor t
-double interpolate_angles(double angle1, double angle2, double interpolation_factor)
-{
-    // Normalize angles to the range [-180, 180)
-    angle1 = normalize_angle(angle1);
-    angle2 = normalize_angle(angle2);
-
-    // Find the shortest path between angles
-    double delta_angle = normalize_angle(angle2 - angle1);
-
-    // Interpolate the angles
-    double interpolated_angle = angle1 + interpolation_factor * delta_angle;
-
-    // Normalize the interpolated angle
-    return normalize_angle(interpolated_angle);
-}
-
 Uint32 update_animation_time(Uint32 interval, void * /*param*/)
 {
     animation_time += interval / 1000.0;
@@ -171,60 +140,6 @@ Uint32 update_animation_time(Uint32 interval, void * /*param*/)
     }
     viewer.redraw_next = true;
     return interval;
-}
-
-Eigen::Matrix4d lerp_matrices(const Eigen::Matrix4d &mat1, const Eigen::Matrix4d &mat2, double interpolation_factor, const Eigen::Vector3d &barycenter)
-{
-    // Convert into affine transformation
-    Eigen::Affine3d affine1 = Eigen::Transform<double, 3, Eigen::Affine>(mat1);
-    Eigen::Affine3d affine2 = Eigen::Transform<double, 3, Eigen::Affine>(mat2);
-
-    // Decompose input transformations into translation, rotation, and scaling components
-    // Translation
-    Eigen::Translation3d translation1(affine1.translation());
-    Eigen::Translation3d translation2(affine2.translation());
-
-    // Rotation
-    Eigen::Quaterniond rotation1(affine1.rotation());
-    Eigen::Quaterniond rotation2(affine2.rotation());
-
-    // Scaling
-    double sx1 = mat1.block<3, 1>(0, 0).norm();
-    double sy1 = mat1.block<3, 1>(0, 1).norm();
-    double sz1 = mat1.block<3, 1>(0, 2).norm();
-    Eigen::Vector3d scaling1 = Eigen::Vector3d(sx1, sy1, sz1);
-
-    double sx2 = mat2.block<3, 1>(0, 0).norm();
-    double sy2 = mat2.block<3, 1>(0, 1).norm();
-    double sz2 = mat2.block<3, 1>(0, 2).norm();
-    Eigen::Vector3d scaling2 = Eigen::Vector3d(sx2, sy2, sz2);
-
-    // Interpolate translations using lerp
-    Eigen::Vector3d interpolated_translation = translation1.vector() + interpolation_factor * (translation2.vector() - translation1.vector());
-
-    // Interpolate rotations using slerp
-    Eigen::Quaterniond interpolated_rotation = rotation1.slerp(interpolation_factor, rotation2);
-
-    // Interpolate scalings using lerp
-    Eigen::Vector3d interpolated_scaling = scaling1 + interpolation_factor * (scaling2 - scaling1);
-
-    // Create the transformation matrix
-    Eigen::Affine3d interpolated_transform = Eigen::Affine3d::Identity();
-
-    // Translate the object so that its barycenter is at the origin
-    interpolated_transform.translate(-barycenter);
-
-    // Apply the interpolated rotation and scaling transformations
-    interpolated_transform.rotate(interpolated_rotation);
-    interpolated_transform.scale(interpolated_scaling);
-
-    // Translate the object back to its original position
-    interpolated_transform.translate(barycenter);
-
-    // Apply the interpolated translation
-    interpolated_transform.translate(interpolated_translation);
-
-    return interpolated_transform.matrix();
 }
 
 Eigen::Matrix4d get_clockwise_rotation(double angle_in_degrees)
@@ -403,6 +318,50 @@ int find_nearest_object(const Eigen::Vector3d &ray_origin, const Eigen::Vector3d
     return closest_index;
 }
 
+// Normalize an angle to the range [-180, 180)
+double normalize_angle(const double angle)
+{
+    double normalized_angle = angle;
+    while (normalized_angle < -180)
+    {
+        normalized_angle += 360;
+    }
+    while (normalized_angle >= 180)
+    {
+        normalized_angle -= 360;
+    }
+    return normalized_angle;
+}
+
+// Interpolate two angles (in degrees) using the interpolation factor
+double lerp_rotation_angles(const double angle1, const double angle2, const double interpolation_factor)
+{
+    // Normalize angles to the range [-180, 180)
+    double normalized_angle1 = normalize_angle(angle1);
+    double normalized_angle2 = normalize_angle(angle2);
+
+    // Find the shortest path between angles
+    double delta_angle = normalize_angle(normalized_angle2 - normalized_angle1);
+
+    // Interpolate the angles
+    double interpolated_angle = normalized_angle1 + interpolation_factor * delta_angle;
+
+    // Normalize the interpolated angle
+    return normalize_angle(interpolated_angle);
+}
+
+Eigen::Vector3d lerp_translations(const Eigen::Vector3d &translation1, const Eigen::Vector3d &translation2, const double interpolation_factor)
+{
+    Eigen::Vector3d interpolated_translation = translation1 + interpolation_factor * (translation2 - translation1);
+    return interpolated_translation;
+}
+
+double lerp_scale_factors(const double scale1, const double scale2, const double interpolation_factor)
+{
+    double interpolated_scale = scale1 + interpolation_factor * (scale2 - scale1);
+    return interpolated_scale;
+}
+
 Eigen::Vector4d get_world_coordinates(int x_screen, int y_screen)
 {
     Eigen::Vector4d canonical_coords = Eigen::Vector4d((double(x_screen) / double(width) * 2) - 1, (double(height - 1 - y_screen) / double(height) * 2) - 1, 0, 1);
@@ -556,43 +515,53 @@ void update_transformation(UniformAttributes &uniform)
 
 Eigen::Matrix4d get_model_transformation(int selected_triangle)
 {
-    if (!is_animation_playing || current_mode != ANIMATION_MODE)
-    {
-        return model_transformations[selected_triangle];
-    }
-
-    Keyframe keyframe1, keyframe2;
-    for (int i = 0; i < keyframes.size() - 1; ++i)
-    {
-        if (animation_time >= keyframes[i].time && animation_time <= keyframes[i + 1].time)
-        {
-            keyframe1 = keyframes[i];
-            keyframe2 = keyframes[i + 1];
-            break;
-        }
-    }
-
-    // Calculate the interpolation factor
-    double interpolation_factor = (animation_time - keyframe1.time) / (keyframe2.time - keyframe1.time);
+    Eigen::Vector3d translation;
+    double rotation_angle;
+    double scale_factor;
 
     // Compute triangle barycenter
     Eigen::Vector3d barycenter = get_triangle_barycenter(selected_triangle);
 
-    double interpolated_angle = interpolate_angles(keyframe1.rotations[selected_triangle], keyframe2.rotations[selected_triangle], interpolation_factor);
+    if (current_mode == ANIMATION_MODE && is_animation_playing)
+    {
+        // Find two closest keyframes based on the current animation time
+        Keyframe keyframe1, keyframe2;
+        for (int i = 0; i < keyframes.size() - 1; ++i)
+        {
+            if (animation_time >= keyframes[i].time && animation_time <= keyframes[i + 1].time)
+            {
+                keyframe1 = keyframes[i];
+                keyframe2 = keyframes[i + 1];
+                break;
+            }
+        }
 
-    // Convert the interpolated angle to a rotation matrix
-    Eigen::Matrix3d rotationMatrix = Eigen::AngleAxisd(interpolated_angle * M_PI / 180.0, Eigen::Vector3d::UnitZ()).toRotationMatrix();
+        // Calculate the interpolation factor
+        double interpolation_factor = (animation_time - keyframe1.time) / (keyframe2.time - keyframe1.time);
 
-    Eigen::Matrix4d final_rotation_matrix = Eigen::Matrix4d::Identity();
-    final_rotation_matrix.block<3, 3>(0, 0) = rotationMatrix;
+        // Compute the interpolated translation
+        translation = lerp_translations(keyframe1.translations[selected_triangle], keyframe2.translations[selected_triangle], interpolation_factor);
 
-    // Interpolate translations using lerp
-    Eigen::Vector3d interpolated_translation = keyframe1.translations[selected_triangle] + interpolation_factor * (keyframe2.translations[selected_triangle] - keyframe1.translations[selected_triangle]);
+        // Calculate the interpolated rotation angle
+        rotation_angle = lerp_rotation_angles(keyframe1.rotations[selected_triangle], keyframe2.rotations[selected_triangle], interpolation_factor);
 
-    double interpolated_scale = keyframe1.scales[selected_triangle] + interpolation_factor * (keyframe2.scales[selected_triangle] - keyframe1.scales[selected_triangle]);
+        // Calculate the interpolated scale factor
+        scale_factor = lerp_scale_factors(keyframe1.scales[selected_triangle], keyframe2.scales[selected_triangle], interpolation_factor);
+    }
+    else
+    {
+        // Calulate the transformation based on current orientation
+        translation = model_translations[selected_triangle];
+        rotation_angle = normalize_angle(model_rotations[selected_triangle]);
+        scale_factor = model_scales[selected_triangle];
+    }
 
-    Eigen::Matrix4d final_matrix = get_translation(interpolated_translation) * get_translation(barycenter) * final_rotation_matrix * get_scaling(interpolated_scale) * get_translation(-barycenter);
-    return final_matrix;
+    // Convert the normalized rotation angle to a rotation matrix
+    Eigen::Matrix4d rotation_matrix = Eigen::Matrix4d::Identity();
+    rotation_matrix.block<3, 3>(0, 0) = Eigen::AngleAxisd(rotation_angle * M_PI / 180.0, Eigen::Vector3d::UnitZ()).toRotationMatrix();
+
+    Eigen::Matrix4d transformation = get_translation(translation) * get_translation(barycenter) * rotation_matrix * get_scaling(scale_factor) * get_translation(-barycenter);
+    return transformation;
 }
 
 // Finds the closest vertex to the mouse position
@@ -691,18 +660,18 @@ void add_keyframe()
 {
     Keyframe keyframe;
     keyframe.time = keyframes.size() * keyframe_interval;
+
+    // Record transformations for all objects at current time
     keyframe.translations.insert(keyframe.translations.end(), model_translations.begin(), model_translations.end());
     keyframe.rotations.insert(keyframe.rotations.end(), model_rotations.begin(), model_rotations.end());
     keyframe.scales.insert(keyframe.scales.end(), model_scales.begin(), model_scales.end());
+
     keyframes.push_back(keyframe);
 }
 
 void clear_keyframes()
 {
-    for (int i = keyframes.size(); i > 1; i--)
-    {
-        keyframes.pop_back();
-    }
+    keyframes.clear();
 }
 
 void render_triangles_with_wireframe(
