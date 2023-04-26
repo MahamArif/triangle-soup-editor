@@ -71,7 +71,13 @@ const int frame_rate = 30;
 bool is_animation_playing = false;
 SDL_TimerID animation_timer_id = 0;
 Uint32 animation_interval = 1000 / frame_rate;
+
+// Linear Animation
 double animation_time = 0.0;
+
+// Bezier Animation
+double bezier_time = 0.0;
+double bezier_increment = 0.01;
 
 // Modes
 enum Mode
@@ -131,15 +137,44 @@ Eigen::Vector4d get_color_vector(Color color_code)
     }
 }
 
-Uint32 update_animation_time(Uint32 interval, void * /*param*/)
+Uint32 timer_callback(Uint32 interval, void * /*param*/)
 {
-    animation_time += interval / 1000.0;
-    if (animation_time > keyframes.back().time)
+    if (current_mode == LINEAR_ANIMATION_MODE)
     {
-        animation_time = 0.0;
+        animation_time += interval / 1000.0;
+        if (animation_time > keyframes.back().time)
+        {
+            animation_time = 0.0;
+        }
+    }
+    else if (current_mode == BEZIER_ANIMATION_MODE)
+    {
+        bezier_time += bezier_increment;
+        if (bezier_time > 1.0)
+        {
+            bezier_time = 0.0;
+        }
     }
     viewer.redraw_next = true;
     return interval;
+}
+
+// Recursive de Casteljau's algorithm
+template <typename T>
+T deCasteljau(const std::vector<T> &controlPoints, double t)
+{
+    if (controlPoints.size() == 1)
+    {
+        return controlPoints[0];
+    }
+
+    std::vector<T> newControlPoints;
+    for (size_t i = 0; i < controlPoints.size() - 1; ++i)
+    {
+        newControlPoints.push_back(controlPoints[i] + t * (controlPoints[i + 1] - controlPoints[i]));
+    }
+
+    return deCasteljau(newControlPoints, t);
 }
 
 // Normalize an angle to the range [-180, 180)
@@ -343,11 +378,45 @@ Eigen::Matrix4d get_lerp_transformation(int triangle_index)
     return transformation;
 }
 
+Eigen::Matrix4d get_bezier_transformation(int triangle_index)
+{
+    std::vector<Eigen::Vector3d> translation_frames;
+    std::vector<double> rotation_frames;
+    std::vector<double> scale_frames;
+
+    // Get separate frames for position, rotation and scaling
+    for (int i = 0; i < keyframes.size(); i++)
+    {
+        translation_frames.push_back(keyframes[i].translations[triangle_index]);
+        rotation_frames.push_back(keyframes[i].rotations[triangle_index]);
+        scale_frames.push_back(keyframes[i].scales[triangle_index]);
+    }
+
+    // Calculate interpolated properties
+    Eigen::Vector3d translation = deCasteljau(translation_frames, bezier_time);
+    double rotation_angle = deCasteljau(rotation_frames, bezier_time);
+    double scale_factor = deCasteljau(scale_frames, bezier_time);
+
+    // Convert the normalized rotation angle to a rotation matrix
+    Eigen::Matrix4d rotation_matrix = Eigen::Matrix4d::Identity();
+    rotation_matrix.block<3, 3>(0, 0) = Eigen::AngleAxisd(rotation_angle * M_PI / 180.0, Eigen::Vector3d::UnitZ()).toRotationMatrix();
+
+    // Compute triangle barycenter
+    Eigen::Vector3d barycenter = get_triangle_barycenter(triangle_index);
+
+    Eigen::Matrix4d transformation = get_translation(translation) * get_translation(barycenter) * rotation_matrix * get_scaling(scale_factor) * get_translation(-barycenter);
+    return transformation;
+}
+
 Eigen::Matrix4d get_model_transformation(int triangle_index)
 {
     if (current_mode == LINEAR_ANIMATION_MODE && is_animation_playing)
     {
         return get_lerp_transformation(triangle_index);
+    }
+    else if (current_mode == BEZIER_ANIMATION_MODE && is_animation_playing)
+    {
+        return get_bezier_transformation(triangle_index);
     }
     else
     {
@@ -663,10 +732,11 @@ void toggle_animation(char key)
     {
         SDL_RemoveTimer(animation_timer_id);
         animation_time = 0.0;
+        bezier_time = 0.0;
     }
     else
     {
-        animation_timer_id = SDL_AddTimer(animation_interval, update_animation_time, nullptr);
+        animation_timer_id = SDL_AddTimer(animation_interval, timer_callback, nullptr);
     }
     is_animation_playing = !is_animation_playing;
 }
