@@ -177,6 +177,28 @@ T deCasteljau(const std::vector<T> &controlPoints, double t)
     return deCasteljau(newControlPoints, t);
 }
 
+void add_keyframe()
+{
+    Keyframe keyframe;
+    keyframe.time = keyframes.size() * keyframe_interval;
+
+    // Record transformations for all objects at current time
+    keyframe.translations.insert(keyframe.translations.end(), model_translations.begin(), model_translations.end());
+    keyframe.rotations.insert(keyframe.rotations.end(), model_rotations.begin(), model_rotations.end());
+    keyframe.scales.insert(keyframe.scales.end(), model_scales.begin(), model_scales.end());
+
+    keyframes.push_back(keyframe);
+}
+
+void clear_keyframes()
+{
+    if (is_animation_playing)
+    {
+        return;
+    }
+    keyframes.clear();
+}
+
 // Normalize an angle to the range [-180, 180)
 double normalize_angle(const double angle)
 {
@@ -585,6 +607,11 @@ void delete_triangle(const Eigen::Vector4d &world_coordinates, const Eigen::Vect
 
         // Remove triangle
         triangle_vertices.erase(triangle_vertices.begin() + index_to_remove, triangle_vertices.begin() + index_to_remove + 3);
+
+        if (!triangle_vertices.size())
+        {
+            clear_keyframes();
+        }
     }
 }
 
@@ -739,24 +766,6 @@ void toggle_animation(char key)
         animation_timer_id = SDL_AddTimer(animation_interval, timer_callback, nullptr);
     }
     is_animation_playing = !is_animation_playing;
-}
-
-void add_keyframe()
-{
-    Keyframe keyframe;
-    keyframe.time = keyframes.size() * keyframe_interval;
-
-    // Record transformations for all objects at current time
-    keyframe.translations.insert(keyframe.translations.end(), model_translations.begin(), model_translations.end());
-    keyframe.rotations.insert(keyframe.rotations.end(), model_rotations.begin(), model_rotations.end());
-    keyframe.scales.insert(keyframe.scales.end(), model_scales.begin(), model_scales.end());
-
-    keyframes.push_back(keyframe);
-}
-
-void clear_keyframes()
-{
-    keyframes.clear();
 }
 
 void render_triangles_with_wireframe(
