@@ -703,6 +703,13 @@ void change_vertex_color(char key)
     }
 }
 
+void clear_animation() {
+    SDL_RemoveTimer(animation_timer_id);
+    animation_time = 0.0;
+    bezier_time = 0.0;
+    is_animation_playing = false;
+}
+
 void reset_previous_mode()
 {
     if (current_mode != INSERT_MODE)
@@ -716,6 +723,9 @@ void reset_previous_mode()
     if (current_mode != COLOR_MODE)
     {
         selected_vertex = -1;
+    }
+    if (current_mode != LINEAR_ANIMATION_MODE && current_mode != BEZIER_ANIMATION_MODE && is_animation_playing) {
+        clear_animation();
     }
 }
 
@@ -755,17 +765,14 @@ void toggle_animation(char key)
         return;
     }
     change_mode(key);
-    if (is_animation_playing)
-    {
-        SDL_RemoveTimer(animation_timer_id);
-        animation_time = 0.0;
-        bezier_time = 0.0;
+    if (is_animation_playing) {
+        clear_animation();
     }
     else
     {
         animation_timer_id = SDL_AddTimer(animation_interval, timer_callback, nullptr);
+        is_animation_playing = true;
     }
-    is_animation_playing = !is_animation_playing;
 }
 
 void render_triangles_with_wireframe(
@@ -902,21 +909,23 @@ int main(int argc, char *args[])
         {
         case INSERT_MODE:
             insert_preview(world_coords);
+            viewer.redraw_next = true;
             break;
         case TRANSLATE_MODE:
             select_triangle(world_coords, uniform.camera_position);
+            viewer.redraw_next = true;
             break;
         case DELETE_MODE:
             delete_triangle(world_coords, uniform.camera_position);
+            viewer.redraw_next = true;
             break;
         case COLOR_MODE:
             selected_vertex = find_closest_vertex(world_coords);
+            viewer.redraw_next = true;
             break;
         default:
             break;
         }
-
-        viewer.redraw_next = true;
     };
 
     viewer.mouse_wheel = [&](int dx, int dy, bool is_direction_normal) {
