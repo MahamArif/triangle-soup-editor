@@ -161,20 +161,20 @@ Uint32 timer_callback(Uint32 interval, void * /*param*/)
 
 // Recursive de Casteljau's algorithm
 template <typename T>
-T deCasteljau(const std::vector<T> &controlPoints, double t)
+T deCasteljau(const std::vector<T> &control_points, double t)
 {
-    if (controlPoints.size() == 1)
+    if (control_points.size() == 1)
     {
-        return controlPoints[0];
+        return control_points[0];
     }
 
-    std::vector<T> newControlPoints;
-    for (size_t i = 0; i < controlPoints.size() - 1; ++i)
+    std::vector<T> new_control_points;
+    for (int i = 0; i < control_points.size() - 1; i++)
     {
-        newControlPoints.push_back(controlPoints[i] + t * (controlPoints[i + 1] - controlPoints[i]));
+        new_control_points.push_back(control_points[i] + t * (control_points[i + 1] - control_points[i]));
     }
 
-    return deCasteljau(newControlPoints, t);
+    return deCasteljau(new_control_points, t);
 }
 
 void add_keyframe()
