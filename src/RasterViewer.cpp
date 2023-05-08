@@ -541,6 +541,14 @@ void insert_triangle(const Eigen::Vector4d &a, const Eigen::Vector4d &b, const E
     model_translations.push_back(Eigen::Vector3d::Zero());
     model_rotations.push_back(0.0);
     model_scales.push_back(1.0);
+
+    // Add new triangle into keyframes (if any)
+    for (int i = 0; i < keyframes.size(); i++)
+    {
+        keyframes[i].translations.push_back(Eigen::Vector3d::Zero());
+        keyframes[i].rotations.push_back(0.0);
+        keyframes[i].scales.push_back(1.0);
+    }
 }
 
 void insert_preview(const Eigen::Vector4d &world_coordinates)
@@ -595,14 +603,12 @@ void delete_triangle(const Eigen::Vector4d &world_coordinates, const Eigen::Vect
         model_scales.erase(model_scales.begin() + nearest_index);
 
         // Delete from keyframes
-        for (Keyframe keyframe : keyframes)
+        for (int i = 0; i < keyframes.size(); i++)
         {
-            if (keyframe.translations.size() == triangle_vertices.size())
-            {
-                keyframe.translations.erase(keyframe.translations.begin() + nearest_index);
-                keyframe.rotations.erase(keyframe.rotations.begin() + nearest_index);
-                keyframe.scales.erase(keyframe.scales.begin() + nearest_index);
-            }
+
+            keyframes[i].translations.erase(keyframes[i].translations.begin() + nearest_index);
+            keyframes[i].rotations.erase(keyframes[i].rotations.begin() + nearest_index);
+            keyframes[i].scales.erase(keyframes[i].scales.begin() + nearest_index);
         }
 
         // Remove triangle
@@ -703,7 +709,8 @@ void change_vertex_color(char key)
     }
 }
 
-void clear_animation() {
+void clear_animation()
+{
     SDL_RemoveTimer(animation_timer_id);
     animation_time = 0.0;
     bezier_time = 0.0;
@@ -724,7 +731,8 @@ void reset_previous_mode()
     {
         selected_vertex = -1;
     }
-    if (current_mode != LINEAR_ANIMATION_MODE && current_mode != BEZIER_ANIMATION_MODE && is_animation_playing) {
+    if (current_mode != LINEAR_ANIMATION_MODE && current_mode != BEZIER_ANIMATION_MODE && is_animation_playing)
+    {
         clear_animation();
     }
 }
@@ -765,7 +773,8 @@ void toggle_animation(char key)
         return;
     }
     change_mode(key);
-    if (is_animation_playing) {
+    if (is_animation_playing)
+    {
         clear_animation();
     }
     else
