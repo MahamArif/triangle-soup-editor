@@ -432,11 +432,12 @@ Eigen::Matrix4d get_bezier_transformation(int triangle_index)
 
 Eigen::Matrix4d get_model_transformation(int triangle_index)
 {
-    if (current_mode == LINEAR_ANIMATION_MODE && is_animation_playing)
+    bool is_animated = keyframes.size() ? keyframes[0].translations.size() > triangle_index : false;
+    if (current_mode == LINEAR_ANIMATION_MODE && is_animation_playing && is_animated)
     {
         return get_lerp_transformation(triangle_index);
     }
-    else if (current_mode == BEZIER_ANIMATION_MODE && is_animation_playing)
+    else if (current_mode == BEZIER_ANIMATION_MODE && is_animation_playing && is_animated)
     {
         return get_bezier_transformation(triangle_index);
     }
@@ -541,14 +542,6 @@ void insert_triangle(const Eigen::Vector4d &a, const Eigen::Vector4d &b, const E
     model_translations.push_back(Eigen::Vector3d::Zero());
     model_rotations.push_back(0.0);
     model_scales.push_back(1.0);
-
-    // Add new triangle into keyframes (if any)
-    for (int i = 0; i < keyframes.size(); i++)
-    {
-        keyframes[i].translations.push_back(Eigen::Vector3d::Zero());
-        keyframes[i].rotations.push_back(0.0);
-        keyframes[i].scales.push_back(1.0);
-    }
 }
 
 void insert_preview(const Eigen::Vector4d &world_coordinates)
@@ -605,10 +598,12 @@ void delete_triangle(const Eigen::Vector4d &world_coordinates, const Eigen::Vect
         // Delete from keyframes
         for (int i = 0; i < keyframes.size(); i++)
         {
-
-            keyframes[i].translations.erase(keyframes[i].translations.begin() + nearest_index);
-            keyframes[i].rotations.erase(keyframes[i].rotations.begin() + nearest_index);
-            keyframes[i].scales.erase(keyframes[i].scales.begin() + nearest_index);
+            if (nearest_index < keyframes[i].translations.size())
+            {
+                keyframes[i].translations.erase(keyframes[i].translations.begin() + nearest_index);
+                keyframes[i].rotations.erase(keyframes[i].rotations.begin() + nearest_index);
+                keyframes[i].scales.erase(keyframes[i].scales.begin() + nearest_index);
+            }
         }
 
         // Remove triangle
